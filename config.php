@@ -1,6 +1,6 @@
 <?php
-$host = "ccscloud.dlsu.edu.ph";
-$port = 60829;   // Node 0
+$host = "127.0.0.1";   // connect to local MySQL
+$port = 3306;           // default MySQL port internally
 $user = "G9_1";
 $pass = "password1234";
 $db   = "faker";
