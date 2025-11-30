@@ -1,6 +1,6 @@
 <?php
 // Path to your shell script
-$script = "/var/www/html/myProject/scripts/create_fragments.sh";
+$script = "/var/www/html/myProject/scripts/create_fragment.sh";
 
 // Execute the script
 exec("sudo $script 2>&1", $output, $return_var);

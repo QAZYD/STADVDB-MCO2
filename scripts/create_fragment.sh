@@ -13,13 +13,19 @@ DB="faker"
 HOST="127.0.0.1"
 PORT=3306
 
-# Output folder (relative to script location)
-OUTPUT_DIR="/var/www/html/myProject/"
+# Base output folder (relative to script location)
+BASE_DIR="/var/www/html/myProject"
 
-# Fragment 1: Users 1–50000
-mysqldump -u $USER -p$PASS -h $HOST -P $PORT --where="id BETWEEN 1 AND 50000" $DB Users > ${OUTPUT_DIR}Users_node1.sql
+# Create Node folders if they don't exist
+mkdir -p "${BASE_DIR}/Node1"
+mkdir -p "${BASE_DIR}/Node2"
 
-# Fragment 2: Users 50001–100000
-mysqldump -u $USER -p$PASS -h $HOST -P $PORT --where="id BETWEEN 50001 AND 100000" $DB Users > ${OUTPUT_DIR}Users_node2.sql
+# Fragment 1: Users 1–50000 → Node1 folder
+mysqldump -u $USER -p$PASS -h $HOST -P $PORT --where="id BETWEEN 1 AND 50000" $DB Users > "${BASE_DIR}/Node1/Users_node1.sql"
 
-echo "Fragments created successfully in $OUTPUT_DIR"
+# Fragment 2: Users 50001–100000 → Node2 folder
+mysqldump -u $USER -p$PASS -h $HOST -P $PORT --where="id BETWEEN 50001 AND 100000" $DB Users > "${BASE_DIR}/Node2/Users_node2.sql"
+
+echo "Fragments created successfully:"
+echo "Node1 → ${BASE_DIR}/Node1/Users_node1.sql"
+echo "Node2 → ${BASE_DIR}/Node2/Users_node2.sql"
