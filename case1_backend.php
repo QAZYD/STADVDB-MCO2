@@ -40,10 +40,12 @@ function getConnection($node) {
 // Read a user with transaction & isolation level
 function readUser($conn, $userId, $isolationLevel) {
     try {
-        $conn->begin_transaction();
+        // Set isolation level BEFORE starting the transaction
         $conn->query("SET TRANSACTION ISOLATION LEVEL $isolationLevel");
+        $conn->begin_transaction();
 
-        $stmt = $conn->prepare("SELECT * FROM users WHERE id = ?");
+        // Make sure to use the correct table name
+        $stmt = $conn->prepare("SELECT * FROM Users WHERE id = ?");
         if (!$stmt) throw new Exception("Prepare failed: " . $conn->error);
 
         $stmt->bind_param("i", $userId);
