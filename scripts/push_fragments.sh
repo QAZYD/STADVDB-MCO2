@@ -1,6 +1,7 @@
 #!/bin/bash
 
-./create_fragments.sh
+# FULL PATH instead of relative
+/var/www/html/myProject/scripts/create_fragments.sh
 
 STAGING_DIR="/var/www/html/myProject/staging"
 NODE1_FILE="$STAGING_DIR/Users_node1.sql"
