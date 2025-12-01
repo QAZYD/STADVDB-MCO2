@@ -10,14 +10,12 @@ $serverIPArray = explode(' ', $serverIPs);
 $currentIP = $serverIPArray[0];
 $isMaster = ($currentIP === $masterIP);
 
-// Only master can run scripts
 if (!isset($_POST['run']) || !$isMaster) {
     http_response_code(403);
-    echo "❌ Forbidden: Not master or invalid request.";
+    echo "❌ Forbidden: Not master or invalid request.\n";
     exit;
 }
 
-// Remote servers
 $remoteServers = [
     [ "host" => "10.2.14.130", "user" => "simon" ],
     [ "host" => "10.2.14.131", "user" => "simon" ]
@@ -33,19 +31,16 @@ function runScripts(array $scripts, string $baseDir, array $remoteServers = []) 
         chmod($scriptPath, 0755);
 
         if ($index === 0) {
-            // create_fragments.sh
             $cmd = "sudo $scriptPath 2>&1";
-            popen($cmd, 'r'); // just run, no detailed output
+            popen($cmd, 'r');
             $log[] = "✔ Fragments created";
         } 
         elseif ($index === 1) {
-            // push_fragments.sh
             $cmd = "sudo $scriptPath 2>&1";
             popen($cmd, 'r');
             $log[] = "✔ Fragments pushed";
         } 
         else {
-            // import_fragments*.sh
             $serverIndex = $index - 2;
             $server = $remoteServers[$serverIndex];
             $cmd = "ssh {$server['user']}@{$server['host']} 'bash -s' < $scriptPath 2>&1";
@@ -54,7 +49,7 @@ function runScripts(array $scripts, string $baseDir, array $remoteServers = []) 
         }
     }
 
-    return implode("<br />", $log);
+    return implode("\n", $log);
 }
 
 $scripts = [
