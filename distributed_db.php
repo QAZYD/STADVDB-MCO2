@@ -30,6 +30,7 @@ $isMaster = ($currentIP === $masterIP);
 <?php endif; ?>
 
 <button id="runCase1Btn">Run Case #1 Simulation</button>
+<button id="runCase2Btn">Run Case #2 Master-Slave Timing</button>
 
 <div id="log">Logs will appear here...</div>
 
@@ -74,7 +75,7 @@ document.getElementById("runCase1Btn").addEventListener("click", function() {
     fetch("case1_backend.php")
     .then(res => res.json())
     .then(results => {
-        appendLog("=== Simulation Results ===");
+        appendLog("=== Case #1 Simulation Results ===");
         for (const [level, nodes] of Object.entries(results)) {
             appendLog(`Isolation Level: ${level}`);
             for (const [node, data] of Object.entries(nodes)) {
@@ -87,6 +88,48 @@ document.getElementById("runCase1Btn").addEventListener("click", function() {
     })
     .catch(err => {
         appendLog("❌ Error during Case #1 simulation: " + err);
+        this.disabled = false;
+    });
+});
+
+// Case #2 master-slave timing simulation
+document.getElementById("runCase2Btn").addEventListener("click", function() {
+    this.disabled = true;
+    appendLog("Running Case #2 Master-Slave Timing Simulation...");
+
+    fetch("case2_master_slave_timing.php")
+    .then(res => res.json())
+    .then(results => {
+        appendLog("=== Case #2 Master-Slave Timing Results ===");
+        for (const [level, info] of Object.entries(results)) {
+            appendLog(`Isolation Level: ${level}`);
+
+            // Master dirty read
+            appendLog(`  Master dirty read: ${info.master_dirty_read.time} -> ${JSON.stringify(info.master_dirty_read.data)}`);
+
+            // Slave polling reads
+            appendLog(`  Node1 polling reads:`);
+            info.slave1_poll_reads.forEach(r => {
+                appendLog(`    ${r.time} -> ${JSON.stringify(r.data)}`);
+            });
+
+            appendLog(`  Node2 polling reads:`);
+            info.slave2_poll_reads.forEach(r => {
+                appendLog(`    ${r.time} -> ${JSON.stringify(r.data)}`);
+            });
+
+            // Final reads after commit
+            appendLog(`  Final reads after master commit:`);
+            appendLog(`    Master: ${info.final_reads.master.time} -> ${JSON.stringify(info.final_reads.master.data)}`);
+            appendLog(`    Node1: ${info.final_reads.slave1.time} -> ${JSON.stringify(info.final_reads.slave1.data)}`);
+            appendLog(`    Node2: ${info.final_reads.slave2.time} -> ${JSON.stringify(info.final_reads.slave2.data)}`);
+            appendLog(""); // newline
+        }
+        appendLog("Case #2 simulation completed.\n");
+        this.disabled = false;
+    })
+    .catch(err => {
+        appendLog("❌ Error during Case #2 simulation: " + err);
         this.disabled = false;
     });
 });
