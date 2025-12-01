@@ -37,21 +37,21 @@ function runScripts(array $scripts, string $baseDir, array $remoteServers = []) 
         chmod($scriptPath, 0755);
         $output .= "=== Running $script ===\n";
 
-        // Check if this is an import script
+        // Determine command to run
         if (strpos($script, 'import_fragments') === 0) {
-            // Determine target server
+            // Remote import script
             $serverIndex = ($script === 'import_fragments1.sh') ? 0 : 1;
             $server = $remoteServers[$serverIndex];
 
-            $sshCmd = "ssh {$server['user']}@{$server['host']} 'bash -s' < $scriptPath 2>&1";
+            $cmd = "ssh {$server['user']}@{$server['host']} 'bash -s' < $scriptPath 2>&1";
             $output .= "Running import remotely on {$server['host']}...\n";
-
-            $proc = popen($sshCmd, 'r');
         } else {
-            // Local script (create or push)
-            $proc = popen($scriptPath . " 2>&1", 'r');
+            // Local script (create or push) → run as root using sudo
+            $cmd = "sudo $scriptPath 2>&1";
         }
 
+        // Execute command
+        $proc = popen($cmd, 'r');
         if (is_resource($proc)) {
             while (!feof($proc)) {
                 $line = fgets($proc);
@@ -70,8 +70,8 @@ function runScripts(array $scripts, string $baseDir, array $remoteServers = []) 
 }
 
 $scripts = [
-    "create_fragments.sh",    // local on Server0
-    "push_fragments.sh",      // local on Server0
+    "create_fragments.sh",    // local on Server0 → root
+    "push_fragments.sh",      // local on Server0 → root
     "import_fragments1.sh",   // remote on Server1
     "import_fragments2.sh"    // remote on Server2
 ];
