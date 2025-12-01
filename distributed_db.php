@@ -99,39 +99,19 @@ document.getElementById("runCase2Btn").addEventListener("click", function() {
 
     fetch("case2_backend.php")
     .then(res => res.json())
-    .then(results => {
-        appendLog("=== Case #2 Master-Slave Timing Results ===");
-        for (const [level, info] of Object.entries(results)) {
-            appendLog(`Isolation Level: ${level}`);
+   .then(results => {
+    appendLog("=== Case #2 Master-Slave Timing Results ===");
+    for (const [level, nodes] of Object.entries(results)) {
+        appendLog(`Isolation Level: ${level}`);
+        appendLog(`  Master reads: ${JSON.stringify(nodes.master)}`);
+        appendLog(`  Node1 reads: ${JSON.stringify(nodes.node1)}`);
+        appendLog(`  Node2 reads: ${JSON.stringify(nodes.node2)}`);
+        appendLog(""); // newline
+    }
+    appendLog("Case #2 simulation completed.\n");
+    this.disabled = false;
+})
 
-            // Master dirty read
-            appendLog(`  Master dirty read: ${info.master_dirty_read.time} -> ${JSON.stringify(info.master_dirty_read.data)}`);
-
-            // Slave polling reads
-            appendLog(`  Node1 polling reads:`);
-            info.slave1_poll_reads.forEach(r => {
-                appendLog(`    ${r.time} -> ${JSON.stringify(r.data)}`);
-            });
-
-            appendLog(`  Node2 polling reads:`);
-            info.slave2_poll_reads.forEach(r => {
-                appendLog(`    ${r.time} -> ${JSON.stringify(r.data)}`);
-            });
-
-            // Final reads after commit
-            appendLog(`  Final reads after master commit:`);
-            appendLog(`    Master: ${info.final_reads.master.time} -> ${JSON.stringify(info.final_reads.master.data)}`);
-            appendLog(`    Node1: ${info.final_reads.slave1.time} -> ${JSON.stringify(info.final_reads.slave1.data)}`);
-            appendLog(`    Node2: ${info.final_reads.slave2.time} -> ${JSON.stringify(info.final_reads.slave2.data)}`);
-            appendLog(""); // newline
-        }
-        appendLog("Case #2 simulation completed.\n");
-        this.disabled = false;
-    })
-    .catch(err => {
-        appendLog("❌ Error during Case #2 simulation: " + err);
-        this.disabled = false;
-    });
 });
 </script>
 
