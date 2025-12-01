@@ -34,7 +34,6 @@ function masterUpdateUser($conn, $id, $newName) {
     $stmt->bind_param("si", $newName, $id);
     $stmt->execute();
     $stmt->close();
-    // Do not commit yet
 }
 
 function pollSlaveWithTiming($conn, $id, $attempts=5, $delaySec=1) {
@@ -50,7 +49,13 @@ function pollSlaveWithTiming($conn, $id, $attempts=5, $delaySec=1) {
     return $reads;
 }
 
-$userId = 1;
+// master uses ID=1
+$masterUserId = 1;
+
+// shard IDs
+$node1UserId = 1;        // shard A: 1 – 50000
+$node2UserId = 50001;    // shard B: 50001 – 100000
+
 $newNameBase = "Phase2Timing";
 $isolationLevels = ['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE'];
 $results = [];
@@ -63,7 +68,6 @@ foreach ($isolationLevels as $level) {
         $node1  = getConnection($nodes['node1']);
         $node2  = getConnection($nodes['node2']);
 
-        // Log connection status
         $results[$level]['connections'] = [
             'master'=>$master['error'] ?? 'ok',
             'node1'=>$node1['error'] ?? 'ok',
@@ -74,35 +78,37 @@ foreach ($isolationLevels as $level) {
 
         $results[$level]['transaction_start_time'] = date('H:i:s');
 
-        // Set isolation level BEFORE starting transaction
+        // isolation
         $master['conn']->query("SET TRANSACTION ISOLATION LEVEL $level");
         $results[$level]['isolation_level_set'] = $level;
 
-        // Master update
-        masterUpdateUser($master['conn'], $userId, $newNameBase . "_$level");
+        // master update
+        masterUpdateUser($master['conn'], $masterUserId, $newNameBase . "_$level");
         $results[$level]['master_update_time'] = date('H:i:s');
         $results[$level]['master_update_value'] = $newNameBase . "_$level";
 
-        // Master dirty read
-        $masterDirtyRead = ['time'=>date('H:i:s'),'data'=>readUser($master['conn'],$userId)];
-        $results[$level]['master_dirty_read'] = $masterDirtyRead;
+        // dirty read
+        $results[$level]['master_dirty_read'] = [
+            'time'=>date('H:i:s'),
+            'data'=>readUser($master['conn'],$masterUserId)
+        ];
 
-        // Slave polls
-        $results[$level]['slave1_poll_reads'] = pollSlaveWithTiming($node1['conn'], $userId);
-        $results[$level]['slave2_poll_reads'] = pollSlaveWithTiming($node2['conn'], $userId);
+        // correct shard IDs used here
+        $results[$level]['slave1_poll_reads'] = pollSlaveWithTiming($node1['conn'], $node1UserId);
+        $results[$level]['slave2_poll_reads'] = pollSlaveWithTiming($node2['conn'], $node2UserId);
 
-        // Commit master
+        // commit
         $master['conn']->commit();
         $results[$level]['master_commit_time'] = date('H:i:s');
 
-        // Final reads after commit
+        // final reads
         $results[$level]['final_reads'] = [
-            'master'=>['time'=>date('H:i:s'),'data'=>readUser($master['conn'],$userId)],
-            'slave1'=>['time'=>date('H:i:s'),'data'=>readUser($node1['conn'],$userId)],
-            'slave2'=>['time'=>date('H:i:s'),'data'=>readUser($node2['conn'],$userId)],
+            'master'=>['time'=>date('H:i:s'),'data'=>readUser($master['conn'], $masterUserId)],
+            'slave1'=>['time'=>date('H:i:s'),'data'=>readUser($node1['conn'], $node1UserId)],
+            'slave2'=>['time'=>date('H:i:s'),'data'=>readUser($node2['conn'], $node2UserId)],
         ];
 
-        // Close connections
+        // close
         $master['conn']->close();
         $node1['conn']->close();
         $node2['conn']->close();
