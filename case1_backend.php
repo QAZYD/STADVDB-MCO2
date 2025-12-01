@@ -1,7 +1,10 @@
 <?php
-error_reporting(E_ERROR | E_PARSE);
-mysqli_report(MYSQLI_REPORT_OFF);
+// case1_backend_debug.php
 header('Content-Type: application/json');
+
+// Enable all errors for debugging
+error_reporting(E_ALL);
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 // Database nodes
 $nodes = [
@@ -25,28 +28,37 @@ $nodes = [
     ]
 ];
 
+// Connect to a node
 function getConnection($node) {
-    $conn = @new mysqli($node['host'], $node['user'], $node['pass'], $node['db']);
+    $conn = new mysqli($node['host'], $node['user'], $node['pass'], $node['db']);
     if ($conn->connect_error) {
-        return null;
+        return ['conn' => null, 'error' => $conn->connect_error];
     }
-    return $conn;
+    return ['conn' => $conn, 'error' => null];
 }
 
+// Read a user with transaction & isolation level
 function readUser($conn, $userId, $isolationLevel) {
-    if (!$conn) return null;
-    $conn->query("SET TRANSACTION ISOLATION LEVEL $isolationLevel");
-    $conn->begin_transaction();
+    try {
+        $conn->begin_transaction();
+        $conn->query("SET TRANSACTION ISOLATION LEVEL $isolationLevel");
 
-    $stmt = $conn->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->bind_param("i", $userId);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $data = $result->fetch_assoc();
+        $stmt = $conn->prepare("SELECT * FROM users WHERE id = ?");
+        if (!$stmt) throw new Exception("Prepare failed: " . $conn->error);
 
-    $stmt->close();
-    $conn->commit();
-    return $data ?: null;
+        $stmt->bind_param("i", $userId);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+        $data = $result->fetch_assoc();
+
+        $stmt->close();
+        $conn->commit();
+
+        return $data ?: null;
+    } catch (Exception $e) {
+        return ['error' => $e->getMessage()];
+    }
 }
 
 $isolationLevels = ['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE'];
@@ -55,19 +67,36 @@ $results = [];
 foreach ($isolationLevels as $level) {
     $results[$level] = [];
 
-    $conn1 = getConnection($nodes['node1']);
-    $results[$level]['node1'] = readUser($conn1, 1, $level);
-    if ($conn1) $conn1->close();
+    // Node 1
+    $c1 = getConnection($nodes['node1']);
+    if ($c1['error']) {
+        $results[$level]['node1'] = ['connection_error' => $c1['error']];
+    } else {
+        $results[$level]['node1'] = readUser($c1['conn'], 1, $level);
+        $c1['conn']->close();
+    }
 
-    $conn2 = getConnection($nodes['node2']);
-    $results[$level]['node2'] = readUser($conn2, 50001, $level);
-    if ($conn2) $conn2->close();
+    // Node 2
+    $c2 = getConnection($nodes['node2']);
+    if ($c2['error']) {
+        $results[$level]['node2'] = ['connection_error' => $c2['error']];
+    } else {
+        $results[$level]['node2'] = readUser($c2['conn'], 50001, $level);
+        $c2['conn']->close();
+    }
 
-    $conn0 = getConnection($nodes['master']);
-    $results[$level]['master_node1'] = readUser($conn0, 1, $level);
-    $results[$level]['master_node2'] = readUser($conn0, 50001, $level);
-    if ($conn0) $conn0->close();
+    // Master node
+    $c0 = getConnection($nodes['master']);
+    if ($c0['error']) {
+        $results[$level]['master_node1'] = ['connection_error' => $c0['error']];
+        $results[$level]['master_node2'] = ['connection_error' => $c0['error']];
+    } else {
+        $results[$level]['master_node1'] = readUser($c0['conn'], 1, $level);
+        $results[$level]['master_node2'] = readUser($c0['conn'], 50001, $level);
+        $c0['conn']->close();
+    }
 }
 
+// Output debug JSON
 echo json_encode($results, JSON_PRETTY_PRINT);
 exit;
