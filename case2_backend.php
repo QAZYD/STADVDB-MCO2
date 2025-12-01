@@ -1,21 +1,20 @@
 <?php
-// case2_master_slave_sync.php
+// case2_master_writes_logging.php
 header('Content-Type: application/json');
-set_time_limit(180);
+set_time_limit(0); // allow long execution
 
 error_reporting(E_ALL);
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+// Flush output immediately
+ob_implicit_flush(true);
+ob_end_flush();
 
 $nodes = [
     'master' => ['host'=>'10.2.14.129','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
     'node1'  => ['host'=>'10.2.14.130','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
     'node2'  => ['host'=>'10.2.14.131','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
 ];
-
-function logStep($msg) {
-    echo "[" . date('H:i:s') . "] $msg\n";
-    flush();
-}
 
 function getConnection($node) {
     $conn = new mysqli($node['host'], $node['user'], $node['pass'], $node['db']);
@@ -40,82 +39,92 @@ function updateUser($conn, $id, $newName) {
     $stmt->close();
 }
 
-function pollNode($conn, $id, $attempts=3, $delay=1) {
+function pollNode($conn, $id, $attempts=5, $delay=1, $nodeName='') {
     $reads = [];
     for ($i=0; $i<$attempts; $i++) {
         $data = readUser($conn, $id);
-        $reads[] = [
-            'attempt'=>$i+1,
-            'time'=>date('H:i:s'),
-            'data'=>$data
-        ];
+        $reads[] = ['attempt'=>$i+1, 'time'=>date('H:i:s'), 'data'=>$data];
+        // Real-time log
+        echo "[$nodeName] Poll attempt " . ($i+1) . ": " . json_encode($data) . "\n";
+        flush();
         sleep($delay);
     }
     return $reads;
 }
 
-// IDs and new values
-$ids = [1 => 'Bob', 50001 => 'Steve'];
+// IDs for testing
+$idMaster1 = 1;
+$idMaster2 = 50001;
+
+$newNames = [
+    $idMaster1 => 'Bob',
+    $idMaster2 => 'Steve'
+];
+
 $isolationLevels = ['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE'];
 $results = [];
 
 foreach ($isolationLevels as $level) {
-    logStep("=== Isolation Level: $level ===");
-
-    $master = getConnection($nodes['master']);
-    $node1  = getConnection($nodes['node1']);
-    $node2  = getConnection($nodes['node2']);
-
-    if ($master['error'] || $node1['error'] || $node2['error']) {
-        logStep("Connection error: " . json_encode([$master['error'],$node1['error'],$node2['error']]));
-        continue;
-    }
+    echo "\n=== Isolation Level: $level ===\n";
+    flush();
 
     try {
+        $master = getConnection($nodes['master']);
+        $node1  = getConnection($nodes['node1']);
+        $node2  = getConnection($nodes['node2']);
+
+        if ($master['error'] || $node1['error'] || $node2['error']) {
+            throw new Exception("Connection error: " . json_encode([$master['error'],$node1['error'],$node2['error']]));
+        }
+
         $m = $master['conn'];
         $m->query("SET TRANSACTION ISOLATION LEVEL $level");
+        echo "Master isolation level set to $level\n"; flush();
+
         $m->begin_transaction();
-        logStep("Master transaction started");
 
         // Master writes
-        foreach ($ids as $id=>$name) {
-            updateUser($m, $id, $name);
-            logStep("Master updated id $id to '$name'");
-        }
+        updateUser($m, $idMaster1, $newNames[$idMaster1]);
+        echo "Master updated id $idMaster1 to {$newNames[$idMaster1]}\n"; flush();
+        updateUser($m, $idMaster2, $newNames[$idMaster2]);
+        echo "Master updated id $idMaster2 to {$newNames[$idMaster2]}\n"; flush();
 
-        // Synchronous replication (simulate immediate push to slaves)
-        foreach ($ids as $id=>$name) {
-            updateUser($node1['conn'], $id, $name);
-            updateUser($node2['conn'], $id, $name);
-            logStep("Replicated id $id to Node1 & Node2 with '$name'");
-        }
-
-        // Poll slaves before master commit
-        $pollBefore = [
-            'node1_before_commit' => pollNode($node1['conn'], 1),
-            'node2_before_commit' => pollNode($node2['conn'], 50001)
+        // Nodes read BEFORE master commits
+        $pollBeforeCommit = [
+            'node1_reads_before_commit' => pollNode($node1['conn'], $idMaster1, 5, 1, 'Node1'),
+            'node2_reads_before_commit' => pollNode($node2['conn'], $idMaster2, 5, 1, 'Node2')
         ];
+
+        // Master dirty read
+        $masterDirty = [
+            'id1' => readUser($m, $idMaster1),
+            'id2' => readUser($m, $idMaster2)
+        ];
+        echo "Master dirty read: " . json_encode($masterDirty) . "\n"; flush();
 
         // Commit master
         $m->commit();
-        logStep("Master transaction committed");
+        $commitTime = date('H:i:s');
+        echo "Master committed at $commitTime\n"; flush();
 
-        // Poll slaves after commit
-        $pollAfter = [
-            'node1_after_commit' => pollNode($node1['conn'], 1),
-            'node2_after_commit' => pollNode($node2['conn'], 50001)
+        // Nodes read AFTER commit
+        $pollAfterCommit = [
+            'node1_reads_after_commit' => pollNode($node1['conn'], $idMaster1, 5, 1, 'Node1'),
+            'node2_reads_after_commit' => pollNode($node2['conn'], $idMaster2, 5, 1, 'Node2')
         ];
 
-        // Master rollback for testing
+        // Rollback master for testing
         $m->begin_transaction();
-        updateUser($m, 1, 'OriginalName1');
-        updateUser($m, 50001, 'OriginalName2');
+        updateUser($m, $idMaster1, 'OriginalName1');
+        updateUser($m, $idMaster2, 'OriginalName2');
         $m->commit();
-        logStep("Master rolled back to original values");
+        echo "Master rolled back to original names\n"; flush();
 
         $results[$level] = [
-            'poll_before_commit' => $pollBefore,
-            'poll_after_commit' => $pollAfter
+            'master_dirty_read' => $masterDirty,
+            'poll_before_commit' => $pollBeforeCommit,
+            'commit_time' => $commitTime,
+            'poll_after_commit' => $pollAfterCommit
         ];
 
         $m->close();
@@ -123,10 +132,11 @@ foreach ($isolationLevels as $level) {
         $node2['conn']->close();
 
     } catch (Exception $e) {
-        logStep("Error: " . $e->getMessage());
+        echo "❌ Error: " . $e->getMessage() . "\n"; flush();
         $results[$level]['exception'] = $e->getMessage();
     }
 }
 
+echo "\n=== JSON Results ===\n";
 echo json_encode($results, JSON_PRETTY_PRINT);
 exit;
