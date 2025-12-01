@@ -1,7 +1,7 @@
 <?php
-// case2_master_writes_json.php
+// case2_master_writes_isolation.php
 header('Content-Type: application/json');
-set_time_limit(180);
+set_time_limit(300);
 
 error_reporting(E_ALL);
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
@@ -22,30 +22,22 @@ function readUser($conn, $id) {
     $stmt = $conn->prepare("SELECT id, firstName FROM Users WHERE id=?");
     $stmt->bind_param("i", $id);
     $stmt->execute();
-    $result = $stmt->get_result();
-    $data = $result->fetch_assoc();
+    $res = $stmt->get_result();
+    $data = $res->fetch_assoc();
     $stmt->close();
     return $data ?: null;
 }
 
-function updateUser($conn, $id, $newName) {
+function updateUser($conn, $id, $name) {
     $stmt = $conn->prepare("UPDATE Users SET firstName=? WHERE id=?");
-    $stmt->bind_param("si", $newName, $id);
+    $stmt->bind_param("si", $name, $id);
     $stmt->execute();
     $stmt->close();
 }
 
-// IDs to update
-$ids = [
-    1 => 'Bob',
-    50001 => 'Steve'
-];
-
-// Original values for rollback
-$originals = [
-    1 => 'OriginalName1',
-    50001 => 'OriginalName2'
-];
+// IDs and new values
+$ids = [1=>'Bob', 50001=>'Steve'];
+$originals = [1=>'OriginalName1', 50001=>'OriginalName2'];
 
 $isolationLevels = ['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE'];
 $results = [];
@@ -66,11 +58,21 @@ foreach ($isolationLevels as $level) {
         $m->begin_transaction();
 
         // Master writes
-        foreach ($ids as $id => $name) {
-            updateUser($m, $id, $name);
-        }
+        foreach ($ids as $id => $name) updateUser($m, $id, $name);
 
-        // Synchronous replication to slaves
+        // --- Poll slaves BEFORE master commit to see isolation effects ---
+        $results[$level]['before_commit'] = [
+            'node1' => [
+                1 => readUser($node1['conn'], 1),
+                50001 => readUser($node1['conn'], 50001)
+            ],
+            'node2' => [
+                1 => readUser($node2['conn'], 1),
+                50001 => readUser($node2['conn'], 50001)
+            ]
+        ];
+
+        // --- Replicate master to slaves synchronously (simulate real push) ---
         foreach ($ids as $id => $name) {
             updateUser($node1['conn'], $id, $name);
             updateUser($node2['conn'], $id, $name);
@@ -78,8 +80,8 @@ foreach ($isolationLevels as $level) {
 
         $m->commit();
 
-        // Read results after commit
-        $results[$level] = [
+        // --- Poll slaves AFTER commit ---
+        $results[$level]['after_commit'] = [
             'master' => [
                 1 => readUser($m, 1),
                 50001 => readUser($m, 50001)
@@ -94,7 +96,7 @@ foreach ($isolationLevels as $level) {
             ]
         ];
 
-        // Rollback to original values
+        // --- Rollback master & slaves to original for next test ---
         $m->begin_transaction();
         foreach ($originals as $id => $name) {
             updateUser($m, $id, $name);
