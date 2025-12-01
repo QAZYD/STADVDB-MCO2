@@ -99,18 +99,25 @@ document.getElementById("runCase2Btn").addEventListener("click", function() {
 
     fetch("case2_backend.php")
     .then(res => res.json())
-   .then(results => {
+.then(results => {
     appendLog("=== Case #2 Master-Slave Timing Results ===");
-    for (const [level, nodes] of Object.entries(results)) {
+    for (const [level, info] of Object.entries(results)) {
         appendLog(`Isolation Level: ${level}`);
-        appendLog(`  Master reads: ${JSON.stringify(nodes.master)}`);
-        appendLog(`  Node1 reads: ${JSON.stringify(nodes.node1)}`);
-        appendLog(`  Node2 reads: ${JSON.stringify(nodes.node2)}`);
+
+        // Before commit reads
+        appendLog("  --- Before Master Commit ---");
+        appendLog("  Node1: " + JSON.stringify(info.before_commit.node1));
+        appendLog("  Node2: " + JSON.stringify(info.before_commit.node2));
+
+        // After commit reads
+        appendLog("  --- After Master Commit ---");
+        appendLog("  Master: " + JSON.stringify(info.after_commit.master));
+        appendLog("  Node1: " + JSON.stringify(info.after_commit.node1));
+        appendLog("  Node2: " + JSON.stringify(info.after_commit.node2));
+
         appendLog(""); // newline
     }
-    appendLog("Case #2 simulation completed.\n");
-    this.disabled = false;
-})
+});
 
 });
 </script>
