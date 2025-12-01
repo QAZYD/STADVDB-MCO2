@@ -97,7 +97,7 @@ document.getElementById("runCase2Btn").addEventListener("click", function() {
     this.disabled = true;
     appendLog("Running Case #2 Master-Slave Timing Simulation...");
 
-    fetch("case2_master_slave_timing.php")
+    fetch("case2_backend.php")
     .then(res => res.json())
     .then(results => {
         appendLog("=== Case #2 Master-Slave Timing Results ===");
