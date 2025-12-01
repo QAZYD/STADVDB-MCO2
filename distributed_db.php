@@ -1,56 +1,39 @@
+<?php
+// distributed_db.php
+
+// Configuration: Master server internal IP
+$masterIP = "10.2.14.129"; // Server0's internal IP
+
+// Detect current server's internal IP
+$serverIPs = trim(shell_exec("hostname -I")); // returns space-separated IPs
+$serverIPArray = explode(' ', $serverIPs);
+$currentIP = $serverIPArray[0]; // use the first IP
+
+// Check if this is the master server
+$isMaster = ($currentIP === $masterIP);
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Distributed DB Setup</title>
-    <style>
-        body { font-family: monospace; padding: 20px; }
-        pre { background: #f0f0f0; padding: 15px; border-radius: 5px; white-space: pre-wrap; }
-        button { padding: 10px 20px; font-size: 16px; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
-    </style>
+    <title>Distributed DB Actions</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<h2>Distributed Database Setup</h2>
+<h1>Distributed Database Management</h1>
 
-<p>Server IP: <strong id="server-ip"></strong></p>
+<button id="runBtn" disabled>Run Scripts</button>
+<div id="log"></div>
 
-<button id="run-btn" disabled>Run Distributed DB Setup</button>
-
-<pre id="log-output"></pre>
-
+<!-- Pass PHP variable to JS via data attribute -->
 <script>
-const isMaster = <?php echo $isMasterFlag; ?>;
-document.getElementById('server-ip').innerText = "<?php echo $currentIPHtml; ?>";
-
-const btn = document.getElementById('run-btn');
-const logOutput = document.getElementById('log-output');
-
-if (isMaster) {
-    btn.disabled = false;
-
-    btn.addEventListener('click', () => {
-        btn.disabled = true;
-        logOutput.textContent = "Starting scripts...\n";
-
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", "distributed_db_action.php", true);
-        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                logOutput.textContent += xhr.responseText;
-                btn.disabled = false;
-            }
-        };
-
-        xhr.send("run=1");
-    });
-} else {
-    logOutput.textContent = "⚠ This action can only be run on the master server (Server0).";
-}
+    window.appConfig = {
+        isMaster: <?php echo json_encode($isMaster); ?>,
+        actionUrl: "distributed_db_action.php"
+    };
 </script>
+<script src="scripts.js"></script>
 
 </body>
 </html>

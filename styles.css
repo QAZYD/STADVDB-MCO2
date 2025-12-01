@@ -1,0 +1,25 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+}
+
+button {
+    padding: 10px 20px;
+    font-size: 16px;
+    margin-bottom: 20px;
+}
+
+button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+#log {
+    border: 1px solid #ddd;
+    padding: 10px;
+    height: 400px;
+    overflow-y: scroll;
+    background: #f9f9f9;
+    white-space: pre-wrap;
+    font-family: monospace;
+}
