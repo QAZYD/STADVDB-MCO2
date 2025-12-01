@@ -8,19 +8,19 @@ $nodes = [
     'master' => [
         'host' => '10.2.14.129',
         'user' => 'G9_1',
-        'pass' => 'password',
+        'pass' => 'pass1234',
         'db'   => 'faker'
     ],
     'node1' => [
         'host' => '10.2.14.130',
         'user' => 'G9_1',
-        'pass' => 'password',
+        'pass' => 'pass1234',
         'db'   => 'faker'
     ],
     'node2' => [
         'host' => '10.2.14.131',
         'user' => 'G9_1',
-        'pass' => 'password',
+        'pass' => 'pass1234',
         'db'   => 'faker'
     ]
 ];
