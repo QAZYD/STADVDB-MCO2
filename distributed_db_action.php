@@ -17,55 +17,44 @@ if (!isset($_POST['run']) || !$isMaster) {
     exit;
 }
 
-// Define remote servers for imports
+// Remote servers
 $remoteServers = [
     [ "host" => "10.2.14.130", "user" => "simon" ],
     [ "host" => "10.2.14.131", "user" => "simon" ]
 ];
 
 function runScripts(array $scripts, string $baseDir, array $remoteServers = []) {
-    $output = "";
+    $log = [];
 
-    foreach ($scripts as $script) {
+    foreach ($scripts as $index => $script) {
         $scriptPath = "$baseDir/$script";
-
-        if (!file_exists($scriptPath)) {
-            $output .= "❌ Script $scriptPath not found.\n";
-            continue;
-        }
+        if (!file_exists($scriptPath)) continue;
 
         chmod($scriptPath, 0755);
-        $output .= "=== Running $script ===\n";
 
-        // Determine command
-        if (strpos($script, 'import_fragments') === 0) {
-            // Remote script
-            $serverIndex = ($script === 'import_fragments1.sh') ? 0 : 1;
+        if ($index === 0) {
+            // create_fragments.sh
+            $cmd = "sudo $scriptPath 2>&1";
+            popen($cmd, 'r'); // just run, no detailed output
+            $log[] = "✔ Fragments created";
+        } 
+        elseif ($index === 1) {
+            // push_fragments.sh
+            $cmd = "sudo $scriptPath 2>&1";
+            popen($cmd, 'r');
+            $log[] = "✔ Fragments pushed";
+        } 
+        else {
+            // import_fragments*.sh
+            $serverIndex = $index - 2;
             $server = $remoteServers[$serverIndex];
             $cmd = "ssh {$server['user']}@{$server['host']} 'bash -s' < $scriptPath 2>&1";
-            $output .= "Running import remotely on {$server['host']}...\n";
-        } else {
-            // Local script → run as sudo
-            $cmd = "sudo $scriptPath 2>&1";
+            popen($cmd, 'r');
+            $log[] = "✔ Fragments server" . ($serverIndex + 1) . " successful";
         }
-
-        // Execute
-        $proc = popen($cmd, 'r');
-        if (is_resource($proc)) {
-            while (!feof($proc)) {
-                $line = fgets($proc);
-                if ($line !== false) {
-                    $output .= $line;
-                    flush();
-                }
-            }
-            pclose($proc);
-        }
-
-        $output .= "=== Finished $script ===\n\n";
     }
 
-    return $output;
+    return implode("<br />", $log);
 }
 
 $scripts = [
@@ -77,4 +66,4 @@ $scripts = [
 
 $baseDir = "/var/www/html/myProject/scripts";
 
-echo nl2br(runScripts($scripts, $baseDir, $remoteServers));
+echo runScripts($scripts, $baseDir, $remoteServers);
