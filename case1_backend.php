@@ -1,24 +1,26 @@
 <?php
-error_reporting(E_ERROR | E_PARSE);
-mysqli_report(MYSQLI_REPORT_OFF);
+// case1_backend.php
 header('Content-Type: application/json');
 
-// Database nodes
+// Database nodes (local connections on each VM)
 $nodes = [
     'master' => [
-        'host' => '10.2.14.129',
+        'host' => '127.0.0.1',
+        'port' => 3306,
         'user' => 'G9_1',
         'pass' => 'password',
         'db'   => 'faker'
     ],
     'node1' => [
-        'host' => '10.2.14.130',
+        'host' => '127.0.0.1',
+        'port' => 3306,
         'user' => 'G9_1',
         'pass' => 'password',
         'db'   => 'faker'
     ],
     'node2' => [
-        'host' => '10.2.14.131',
+        'host' => '127.0.0.1',
+        'port' => 3306,
         'user' => 'G9_1',
         'pass' => 'password',
         'db'   => 'faker'
@@ -26,15 +28,12 @@ $nodes = [
 ];
 
 function getConnection($node) {
-    $conn = @new mysqli($node['host'], $node['user'], $node['pass'], $node['db']);
-    if ($conn->connect_error) {
-        return null;
-    }
+    $conn = new mysqli($node['host'], $node['user'], $node['pass'], $node['db'], $node['port']);
+    if ($conn->connect_error) die(json_encode(['error' => $conn->connect_error]));
     return $conn;
 }
 
 function readUser($conn, $userId, $isolationLevel) {
-    if (!$conn) return null;
     $conn->query("SET TRANSACTION ISOLATION LEVEL $isolationLevel");
     $conn->begin_transaction();
 
@@ -49,25 +48,29 @@ function readUser($conn, $userId, $isolationLevel) {
     return $data ?: null;
 }
 
+// Case #1: Concurrent reads
 $isolationLevels = ['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE'];
 $results = [];
 
 foreach ($isolationLevels as $level) {
     $results[$level] = [];
 
+    // Node1 reads ID 1
     $conn1 = getConnection($nodes['node1']);
     $results[$level]['node1'] = readUser($conn1, 1, $level);
-    if ($conn1) $conn1->close();
+    $conn1->close();
 
+    // Node2 reads ID 50001
     $conn2 = getConnection($nodes['node2']);
     $results[$level]['node2'] = readUser($conn2, 50001, $level);
-    if ($conn2) $conn2->close();
+    $conn2->close();
 
+    // Parity check: master reads both
     $conn0 = getConnection($nodes['master']);
     $results[$level]['master_node1'] = readUser($conn0, 1, $level);
     $results[$level]['master_node2'] = readUser($conn0, 50001, $level);
-    if ($conn0) $conn0->close();
+    $conn0->close();
 }
 
+// Return JSON
 echo json_encode($results, JSON_PRETTY_PRINT);
-exit;
