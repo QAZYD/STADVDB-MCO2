@@ -1,5 +1,5 @@
 <?php
-// case2_master_slave_verbose.php
+// case2_master_writes.php
 header('Content-Type: application/json');
 set_time_limit(180);
 
@@ -28,17 +28,10 @@ function readUser($conn, $id) {
     return $data ?: null;
 }
 
-// Master updates both IDs
-function masterUpdateUsers($conn, $id1, $name1, $id2, $name2) {
-    $conn->begin_transaction();
+function updateUser($conn, $id, $newName) {
     $stmt = $conn->prepare("UPDATE Users SET firstName=? WHERE id=?");
-
-    $stmt->bind_param("si", $name1, $id1);
+    $stmt->bind_param("si", $newName, $id);
     $stmt->execute();
-
-    $stmt->bind_param("si", $name2, $id2);
-    $stmt->execute();
-
     $stmt->close();
 }
 
@@ -46,80 +39,86 @@ function pollNode($conn, $id, $attempts=5, $delay=1) {
     $reads = [];
     for ($i=0; $i<$attempts; $i++) {
         $reads[] = [
-            'attempt' => $i+1,
-            'time' => date('H:i:s'),
-            'data' => readUser($conn, $id)
+            'attempt'=>$i+1,
+            'time'=>date('H:i:s'),
+            'data'=>readUser($conn, $id)
         ];
         sleep($delay);
     }
     return $reads;
 }
 
-// IDs to test
-$idNode1 = 1;       // shard A
-$idNode2 = 50001;   // shard B
+// IDs for testing
+$idMaster1 = 1;       // master writes
+$idMaster2 = 50001;   // master writes
 
 $newNames = [
-    'id1' => 'Bob',
-    'id2' => 'Steve'
+    $idMaster1 => 'Bob',
+    $idMaster2 => 'Steve'
 ];
 
 $isolationLevels = ['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE'];
 $results = [];
 
 foreach ($isolationLevels as $level) {
-    $results[$level] = [];
+    try {
+        $master = getConnection($nodes['master']);
+        $node1  = getConnection($nodes['node1']);
+        $node2  = getConnection($nodes['node2']);
 
-    $master = getConnection($nodes['master']);
-    $node1  = getConnection($nodes['node1']);
-    $node2  = getConnection($nodes['node2']);
+        if ($master['error'] || $node1['error'] || $node2['error']) continue;
 
-    if ($master['error'] || $node1['error'] || $node2['error']) continue;
+        $m = $master['conn'];
+        $m->query("SET TRANSACTION ISOLATION LEVEL $level");
 
-    $m = $master['conn'];
-    $m->query("SET TRANSACTION ISOLATION LEVEL $level");
+        $m->begin_transaction();
 
-    // Master updates both IDs
-    masterUpdateUsers($m, $idNode1, $newNames['id1'], $idNode2, $newNames['id2']);
-    $results[$level]['master_update_time'] = date('H:i:s');
+        // Master writes
+        updateUser($m, $idMaster1, $newNames[$idMaster1]);
+        updateUser($m, $idMaster2, $newNames[$idMaster2]);
 
-    // Master dirty reads (before commit)
-    $results[$level]['master_dirty_reads'] = [
-        'id1' => readUser($m, $idNode1),
-        'id2' => readUser($m, $idNode2)
-    ];
+        // Node1 & Node2 read before commit
+        $pollBeforeCommit = [
+            'node1_reads_before_commit' => pollNode($node1['conn'], $idMaster1),
+            'node2_reads_before_commit' => pollNode($node2['conn'], $idMaster2)
+        ];
 
-    // Slave polling during master transaction
-    $results[$level]['slave1_poll_reads'] = pollNode($node1['conn'], $idNode1);
-    $results[$level]['slave2_poll_reads'] = pollNode($node2['conn'], $idNode2);
+        // Optional: master dirty reads
+        $masterDirty = [
+            'id1' => readUser($m, $idMaster1),
+            'id2' => readUser($m, $idMaster2)
+        ];
 
-    // Commit master
-    $m->commit();
-    $results[$level]['master_commit_time'] = date('H:i:s');
+        // Commit master
+        $m->commit();
+        $commitTime = date('H:i:s');
 
-    // Final reads after commit
-    $results[$level]['final_reads'] = [
-        'master' => [
-            'id1' => readUser($m, $idNode1),
-            'id2' => readUser($m, $idNode2)
-        ],
-        'node1' => readUser($node1['conn'], $idNode1),
-        'node2' => readUser($node2['conn'], $idNode2)
-    ];
+        // Node1 & Node2 read after commit
+        $pollAfterCommit = [
+            'node1_reads_after_commit' => pollNode($node1['conn'], $idMaster1),
+            'node2_reads_after_commit' => pollNode($node2['conn'], $idMaster2)
+        ];
 
-    // Rollback to original values to restore DB (simulate reset)
-    $stmt = $m->prepare("UPDATE Users SET firstName=? WHERE id=?");
-    // Reset id1
-    $stmt->bind_param("si", $results[$level]['slave1_poll_reads'][0]['data']['firstName'], $idNode1);
-    $stmt->execute();
-    // Reset id2
-    $stmt->bind_param("si", $results[$level]['slave2_poll_reads'][0]['data']['data']['firstName'], $idNode2);
-    $stmt->execute();
-    $stmt->close();
+        // Rollback master for testing
+        $m->begin_transaction();
+        updateUser($m, $idMaster1, 'OriginalName1');
+        updateUser($m, $idMaster2, 'OriginalName2');
+        $m->commit();
 
-    $m->close();
-    $node1['conn']->close();
-    $node2['conn']->close();
+        $results[$level] = [
+            'master_dirty_read' => $masterDirty,
+            'poll_before_commit' => $pollBeforeCommit,
+            'commit_time' => $commitTime,
+            'poll_after_commit' => $pollAfterCommit
+        ];
+
+        $m->close();
+        $node1['conn']->close();
+        $node2['conn']->close();
+
+    } catch (Exception $e) {
+        $results[$level]['exception'] = $e->getMessage();
+    }
 }
 
 echo json_encode($results, JSON_PRETTY_PRINT);
