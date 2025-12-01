@@ -1,5 +1,5 @@
 <?php
-// case2_master_slave_sync_json.php
+// case2_master_writes_json.php
 header('Content-Type: application/json');
 set_time_limit(180);
 
@@ -35,76 +35,73 @@ function updateUser($conn, $id, $newName) {
     $stmt->close();
 }
 
-function pollNode($conn, $id, $attempts=3, $delay=1) {
-    $reads = [];
-    for ($i=0; $i<$attempts; $i++) {
-        $reads[] = [
-            'attempt'=>$i+1,
-            'time'=>date('H:i:s'),
-            'data'=>readUser($conn, $id)
-        ];
-        sleep($delay);
-    }
-    return $reads;
-}
+// IDs to update
+$ids = [
+    1 => 'Bob',
+    50001 => 'Steve'
+];
 
-// IDs and new values
-$ids = [1 => 'Bob', 50001 => 'Steve'];
+// Original values for rollback
+$originals = [
+    1 => 'OriginalName1',
+    50001 => 'OriginalName2'
+];
+
 $isolationLevels = ['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE'];
 $results = [];
 
 foreach ($isolationLevels as $level) {
-
-    $master = getConnection($nodes['master']);
-    $node1  = getConnection($nodes['node1']);
-    $node2  = getConnection($nodes['node2']);
-
-    if ($master['error'] || $node1['error'] || $node2['error']) {
-        $results[$level]['connection_error'] = [$master['error'],$node1['error'],$node2['error']];
-        continue;
-    }
-
     try {
+        $master = getConnection($nodes['master']);
+        $node1  = getConnection($nodes['node1']);
+        $node2  = getConnection($nodes['node2']);
+
+        if ($master['error'] || $node1['error'] || $node2['error']) {
+            $results[$level]['connection_error'] = [$master['error'],$node1['error'],$node2['error']];
+            continue;
+        }
+
         $m = $master['conn'];
         $m->query("SET TRANSACTION ISOLATION LEVEL $level");
         $m->begin_transaction();
 
         // Master writes
-        foreach ($ids as $id=>$name) {
+        foreach ($ids as $id => $name) {
             updateUser($m, $id, $name);
         }
 
         // Synchronous replication to slaves
-        foreach ($ids as $id=>$name) {
+        foreach ($ids as $id => $name) {
             updateUser($node1['conn'], $id, $name);
             updateUser($node2['conn'], $id, $name);
         }
 
-        // Poll slaves before commit
-        $pollBefore = [
-            'node1_before_commit' => pollNode($node1['conn'], 1),
-            'node2_before_commit' => pollNode($node2['conn'], 50001)
-        ];
-
-        // Commit master
         $m->commit();
 
-        // Poll slaves after commit
-        $pollAfter = [
-            'node1_after_commit' => pollNode($node1['conn'], 1),
-            'node2_after_commit' => pollNode($node2['conn'], 50001)
-        ];
-
-        // Rollback master for testing
-        $m->begin_transaction();
-        updateUser($m, 1, 'OriginalName1');
-        updateUser($m, 50001, 'OriginalName2');
-        $m->commit();
-
+        // Read results after commit
         $results[$level] = [
-            'poll_before_commit' => $pollBefore,
-            'poll_after_commit' => $pollAfter
+            'master' => [
+                1 => readUser($m, 1),
+                50001 => readUser($m, 50001)
+            ],
+            'node1' => [
+                1 => readUser($node1['conn'], 1),
+                50001 => readUser($node1['conn'], 50001)
+            ],
+            'node2' => [
+                1 => readUser($node2['conn'], 1),
+                50001 => readUser($node2['conn'], 50001)
+            ]
         ];
+
+        // Rollback to original values
+        $m->begin_transaction();
+        foreach ($originals as $id => $name) {
+            updateUser($m, $id, $name);
+            updateUser($node1['conn'], $id, $name);
+            updateUser($node2['conn'], $id, $name);
+        }
+        $m->commit();
 
         $m->close();
         $node1['conn']->close();
