@@ -1,39 +1,96 @@
 <?php
 // distributed_db.php
 
-// Configuration: Master server internal IP
-$masterIP = "10.2.14.129"; // Server0's internal IP
-
-// Detect current server's internal IP
-$serverIPs = trim(shell_exec("hostname -I")); // returns space-separated IPs
+// Detect if this is master server
+$masterIP = "10.2.14.129"; // Server0 internal IP
+$serverIPs = trim(shell_exec("hostname -I"));
 $serverIPArray = explode(' ', $serverIPs);
-$currentIP = $serverIPArray[0]; // use the first IP
-
-// Check if this is the master server
+$currentIP = $serverIPArray[0];
 $isMaster = ($currentIP === $masterIP);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Distributed DB Actions</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Distributed DB Management & Concurrency Simulation</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        button { margin: 5px; padding: 10px 20px; font-size: 16px; }
+        #log { margin-top: 20px; white-space: pre-wrap; background: #f5f5f5; padding: 10px; border: 1px solid #ccc; max-height: 500px; overflow-y: auto; }
+    </style>
 </head>
 <body>
 
 <h1>Distributed Database Management</h1>
 
-<button id="runBtn" disabled>Run Scripts</button>
-<div id="log"></div>
+<?php if ($isMaster): ?>
+    <button id="runDistributionBtn">Run Fragment Distribution</button>
+<?php else: ?>
+    <p style="color:red;">This server is not the master. Fragment distribution is disabled.</p>
+<?php endif; ?>
 
-<!-- Pass PHP variable to JS via data attribute -->
+<button id="runCase1Btn">Run Case #1 Simulation</button>
+
+<div id="log">Logs will appear here...</div>
+
 <script>
-    window.appConfig = {
-        isMaster: <?php echo json_encode($isMaster); ?>,
-        actionUrl: "distributed_db_action.php"
-    };
+const logDiv = document.getElementById("log");
+
+// Helper to append messages to log
+function appendLog(message) {
+    logDiv.textContent += message + "\n";
+    logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+// Fragment distribution
+<?php if ($isMaster): ?>
+document.getElementById("runDistributionBtn").addEventListener("click", function() {
+    this.disabled = true;
+    appendLog("Starting fragment distribution...");
+
+    fetch("distributed_db_action.php", { 
+        method: "POST", 
+        body: "run=1",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" }
+    })
+    .then(res => res.text())
+    .then(log => {
+        appendLog(log);
+        appendLog("Fragment distribution completed.\n");
+        this.disabled = false;
+    })
+    .catch(err => {
+        appendLog("❌ Error during fragment distribution: " + err);
+        this.disabled = false;
+    });
+});
+<?php endif; ?>
+
+// Case #1 concurrency simulation
+document.getElementById("runCase1Btn").addEventListener("click", function() {
+    this.disabled = true;
+    appendLog("Running Case #1 concurrency simulation...");
+
+    fetch("case1_backend.php")
+    .then(res => res.json())
+    .then(results => {
+        appendLog("=== Simulation Results ===");
+        for (const [level, nodes] of Object.entries(results)) {
+            appendLog(`Isolation Level: ${level}`);
+            for (const [node, data] of Object.entries(nodes)) {
+                appendLog(`  ${node}: ${JSON.stringify(data)}`);
+            }
+            appendLog(""); // newline
+        }
+        appendLog("Case #1 simulation completed.\n");
+        this.disabled = false;
+    })
+    .catch(err => {
+        appendLog("❌ Error during Case #1 simulation: " + err);
+        this.disabled = false;
+    });
+});
 </script>
-<script src="scripts.js"></script>
 
 </body>
 </html>
