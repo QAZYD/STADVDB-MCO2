@@ -1,122 +1,126 @@
-    <?php
-    // case2_master_slave_verbose.php
-    header('Content-Type: application/json');
-    set_time_limit(180); // longer execution for polling
+<?php
+// case2_master_slave_verbose.php
+header('Content-Type: application/json');
+set_time_limit(180);
 
-    error_reporting(E_ALL);
-    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+error_reporting(E_ALL);
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-    $nodes = [
-        'master' => ['host'=>'10.2.14.129','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
-        'node1'  => ['host'=>'10.2.14.130','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
-        'node2'  => ['host'=>'10.2.14.131','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
+$nodes = [
+    'master' => ['host'=>'10.2.14.129','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
+    'node1'  => ['host'=>'10.2.14.130','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
+    'node2'  => ['host'=>'10.2.14.131','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
+];
+
+function getConnection($node) {
+    $conn = new mysqli($node['host'], $node['user'], $node['pass'], $node['db']);
+    if ($conn->connect_error) return ['conn'=>null,'error'=>$conn->connect_error];
+    return ['conn'=>$conn,'error'=>null];
+}
+
+function readUser($conn, $id) {
+    $stmt = $conn->prepare("SELECT id, firstName FROM Users WHERE id=?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $data = $result->fetch_assoc();
+    $stmt->close();
+    return $data ?: null;
+}
+
+// Master updates both IDs
+function masterUpdateUsers($conn, $id1, $name1, $id2, $name2) {
+    $conn->begin_transaction();
+    $stmt = $conn->prepare("UPDATE Users SET firstName=? WHERE id=?");
+
+    $stmt->bind_param("si", $name1, $id1);
+    $stmt->execute();
+
+    $stmt->bind_param("si", $name2, $id2);
+    $stmt->execute();
+
+    $stmt->close();
+}
+
+function pollNode($conn, $id, $attempts=5, $delay=1) {
+    $reads = [];
+    for ($i=0; $i<$attempts; $i++) {
+        $reads[] = [
+            'attempt' => $i+1,
+            'time' => date('H:i:s'),
+            'data' => readUser($conn, $id)
+        ];
+        sleep($delay);
+    }
+    return $reads;
+}
+
+// IDs to test
+$idNode1 = 1;       // shard A
+$idNode2 = 50001;   // shard B
+
+$newNames = [
+    'id1' => 'Bob',
+    'id2' => 'Steve'
+];
+
+$isolationLevels = ['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE'];
+$results = [];
+
+foreach ($isolationLevels as $level) {
+    $results[$level] = [];
+
+    $master = getConnection($nodes['master']);
+    $node1  = getConnection($nodes['node1']);
+    $node2  = getConnection($nodes['node2']);
+
+    if ($master['error'] || $node1['error'] || $node2['error']) continue;
+
+    $m = $master['conn'];
+    $m->query("SET TRANSACTION ISOLATION LEVEL $level");
+
+    // Master updates both IDs
+    masterUpdateUsers($m, $idNode1, $newNames['id1'], $idNode2, $newNames['id2']);
+    $results[$level]['master_update_time'] = date('H:i:s');
+
+    // Master dirty reads (before commit)
+    $results[$level]['master_dirty_reads'] = [
+        'id1' => readUser($m, $idNode1),
+        'id2' => readUser($m, $idNode2)
     ];
 
-    function getConnection($node) {
-        $conn = new mysqli($node['host'], $node['user'], $node['pass'], $node['db']);
-        if ($conn->connect_error) return ['conn'=>null,'error'=>$conn->connect_error];
-        return ['conn'=>$conn,'error'=>null];
-    }
+    // Slave polling during master transaction
+    $results[$level]['slave1_poll_reads'] = pollNode($node1['conn'], $idNode1);
+    $results[$level]['slave2_poll_reads'] = pollNode($node2['conn'], $idNode2);
 
-    function readUser($conn, $id) {
-        $stmt = $conn->prepare("SELECT id, firstName FROM Users WHERE id=?");
-        $stmt->bind_param("i", $id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $data = $result->fetch_assoc();
-        $stmt->close();
-        return $data ?: null;
-    }
+    // Commit master
+    $m->commit();
+    $results[$level]['master_commit_time'] = date('H:i:s');
 
-    function masterUpdateUser($conn, $id, $newName) {
-        $conn->begin_transaction();
-        $stmt = $conn->prepare("UPDATE Users SET firstName=? WHERE id=?");
-        $stmt->bind_param("si", $newName, $id);
-        $stmt->execute();
-        $stmt->close();
-    }
+    // Final reads after commit
+    $results[$level]['final_reads'] = [
+        'master' => [
+            'id1' => readUser($m, $idNode1),
+            'id2' => readUser($m, $idNode2)
+        ],
+        'node1' => readUser($node1['conn'], $idNode1),
+        'node2' => readUser($node2['conn'], $idNode2)
+    ];
 
-    function pollSlaveWithTiming($conn, $id, $attempts=5, $delaySec=1) {
-        $reads = [];
-        for ($i=0; $i<$attempts; $i++) {
-            $reads[] = [
-                'attempt' => $i+1,
-                'time' => date('H:i:s'),
-                'data' => readUser($conn, $id)
-            ];
-            sleep($delaySec);
-        }
-        return $reads;
-    }
+    // Rollback to original values to restore DB (simulate reset)
+    $stmt = $m->prepare("UPDATE Users SET firstName=? WHERE id=?");
+    // Reset id1
+    $stmt->bind_param("si", $results[$level]['slave1_poll_reads'][0]['data']['firstName'], $idNode1);
+    $stmt->execute();
+    // Reset id2
+    $stmt->bind_param("si", $results[$level]['slave2_poll_reads'][0]['data']['data']['firstName'], $idNode2);
+    $stmt->execute();
+    $stmt->close();
 
-    // master uses ID=1
-    $masterUserId = 1;
+    $m->close();
+    $node1['conn']->close();
+    $node2['conn']->close();
+}
 
-    // shard IDs
-    $node1UserId = 1;        // shard A: 1 – 50000
-    $node2UserId = 50001;    // shard B: 50001 – 100000
-
-    $newNameBase = "Phase2Timing";
-    $isolationLevels = ['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE'];
-    $results = [];
-
-    foreach ($isolationLevels as $level) {
-        $results[$level] = [];
-
-        try {
-            $master = getConnection($nodes['master']);
-            $node1  = getConnection($nodes['node1']);
-            $node2  = getConnection($nodes['node2']);
-
-            $results[$level]['connections'] = [
-                'master'=>$master['error'] ?? 'ok',
-                'node1'=>$node1['error'] ?? 'ok',
-                'node2'=>$node2['error'] ?? 'ok'
-            ];
-
-            if ($master['error'] || $node1['error'] || $node2['error']) continue;
-
-            $results[$level]['transaction_start_time'] = date('H:i:s');
-
-            // isolation
-            $master['conn']->query("SET TRANSACTION ISOLATION LEVEL $level");
-            $results[$level]['isolation_level_set'] = $level;
-
-            // master update
-            masterUpdateUser($master['conn'], $masterUserId, $newNameBase . "_$level");
-            $results[$level]['master_update_time'] = date('H:i:s');
-            $results[$level]['master_update_value'] = $newNameBase . "_$level";
-
-            // dirty read
-            $results[$level]['master_dirty_read'] = [
-                'time'=>date('H:i:s'),
-                'data'=>readUser($master['conn'],$masterUserId)
-            ];
-
-            // correct shard IDs used here
-            $results[$level]['slave1_poll_reads'] = pollSlaveWithTiming($node1['conn'], $node1UserId);
-            $results[$level]['slave2_poll_reads'] = pollSlaveWithTiming($node2['conn'], $node2UserId);
-
-            // commit
-            $master['conn']->commit();
-            $results[$level]['master_commit_time'] = date('H:i:s');
-
-            // final reads
-            $results[$level]['final_reads'] = [
-                'master'=>['time'=>date('H:i:s'),'data'=>readUser($master['conn'], $masterUserId)],
-                'slave1'=>['time'=>date('H:i:s'),'data'=>readUser($node1['conn'], $node1UserId)],
-                'slave2'=>['time'=>date('H:i:s'),'data'=>readUser($node2['conn'], $node2UserId)],
-            ];
-
-            // close
-            $master['conn']->close();
-            $node1['conn']->close();
-            $node2['conn']->close();
-
-        } catch (Exception $e) {
-            $results[$level]['exception'] = $e->getMessage();
-        }
-    }
-
-    echo json_encode($results, JSON_PRETTY_PRINT);
-    exit;
+echo json_encode($results, JSON_PRETTY_PRINT);
+exit;
