@@ -12,7 +12,9 @@ if (isMaster) {
 
 runBtn.addEventListener("click", function () {
     runBtn.disabled = true;
-    logDiv.textContent = "Starting scripts...\n";
+
+    // Start log with <pre> so newlines show correctly
+    logDiv.innerHTML = "<pre>Starting scripts...\n</pre>";
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", actionUrl, true);
@@ -21,11 +23,12 @@ runBtn.addEventListener("click", function () {
     xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
             if (xhr.status === 200) {
-                logDiv.textContent += xhr.responseText;
+                // Append response inside <pre>
+                logDiv.innerHTML = `<pre>Starting scripts...\n${xhr.responseText}</pre>`;
                 logDiv.scrollTop = logDiv.scrollHeight;
                 runBtn.disabled = false;
             } else {
-                logDiv.textContent += "\n❌ Error running scripts.";
+                logDiv.innerHTML += "\n❌ Error running scripts.";
                 runBtn.disabled = false;
             }
         }
