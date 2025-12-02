@@ -31,7 +31,7 @@ $mysqli->query("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
 $startLocal = microtime(true);
 $mysqli->begin_transaction();
 $mysqli->query("UPDATE Users SET firstName = 'Server0Write' WHERE id = 1");
-sleep(2); // overlap with Server1
+usleep(200000); // overlap with Server1
 $mysqli->commit();
 $endLocal = microtime(true);
 

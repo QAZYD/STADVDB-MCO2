@@ -25,7 +25,7 @@ $mysqli->begin_transaction();
 $mysqli->query("UPDATE Users SET firstName = 'Server1Write' WHERE id = 1");
 
 // Sleep to overlap with Server0
-sleep(2);
+usleep(200000);
 
 $mysqli->commit();
 $end = microtime(true);
