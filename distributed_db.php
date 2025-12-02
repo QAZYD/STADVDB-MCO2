@@ -31,6 +31,7 @@ $isMaster = ($currentIP === $masterIP);
 
 <button id="runCase1Btn">Run Case #1 Simulation</button>
 <button id="runCase2Btn">Run Case #2 Master-Slave Timing</button>
+<button id="runCase3Btn">Run Case #3 Multi-Master Write Conflict</button>
 
 <div id="log">Logs will appear here...</div>
 
@@ -120,6 +121,42 @@ document.getElementById("runCase2Btn").addEventListener("click", function() {
 });
 
 });
+
+// Case #3 multi-master write conflict simulation
+document.getElementById("runCase3Btn").addEventListener("click", function() {
+    this.disabled = true;
+    appendLog("Running Case #3 Multi-Master Write Conflict Simulation...");
+
+    fetch("case3_backend.php")   // <-- backend you will create
+    .then(res => res.json())
+    .then(results => {
+        appendLog("=== Case #3 Multi-Master Write Conflict Results ===");
+
+        appendLog("Server 0:");
+        appendLog("  Status: " + results.server0.status);
+        appendLog("  Duration: " + results.server0.duration + " seconds");
+
+        appendLog("");
+
+        appendLog("Server 1:");
+        appendLog("  Status: " + results.server1.status);
+        appendLog("  Duration: " + results.server1.duration + " seconds");
+
+        appendLog("");
+
+        appendLog("Final Value of ID=1:");
+        appendLog("  " + JSON.stringify(results.final_value));
+
+        appendLog("\nCase #3 simulation completed.\n");
+
+        this.disabled = false;
+    })
+    .catch(err => {
+        appendLog("❌ Error during Case #3 simulation: " + err);
+        this.disabled = false;
+    });
+});
+
 </script>
 
 </body>
