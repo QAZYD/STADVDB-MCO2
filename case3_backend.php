@@ -19,12 +19,32 @@ $levels = ["READ UNCOMMITTED", "READ COMMITTED", "REPEATABLE READ", "SERIALIZABL
 
 $results = [];
 
+// Set 30-second timeout context for HTTP requests
+$context = stream_context_create([
+    'http' => [
+        'timeout' => 30
+    ]
+]);
+
+// Detect if running in CLI
+$isCLI = php_sapi_name() === 'cli';
+
 foreach ($levels as $level) {
+    if ($isCLI) echo "=== Isolation Level: $level ===\n";
+
     // --- Trigger Server 1 with the same isolation level ---
-    $server1Response = file_get_contents("http://ccscloud.dlsu.edu.ph:60230/simulate_case3.php?isolation=" . urlencode($level));
+    $server1Response = @file_get_contents(
+        "http://ccscloud.dlsu.edu.ph:60230/simulate_case3.php?isolation=" . urlencode($level),
+        false,
+        $context
+    );
+
     $server1 = json_decode($server1Response, true);
     if (!$server1) {
         $server1 = ["status" => "ERROR", "duration" => 0];
+        if ($isCLI) echo "Server 1: ERROR (timeout or unreachable)\n";
+    } else {
+        if ($isCLI) echo "Server 1: {$server1['status']} ({$server1['duration']}s)\n";
     }
 
     // --- Server 0 local write ---
@@ -44,7 +64,12 @@ foreach ($levels as $level) {
     $final = $res->fetch_assoc();
     $mysqli->close();
 
-    // Save result for this isolation level
+    if ($isCLI) {
+        echo "Server 0: Committed (" . round($endLocal - $startLocal, 4) . "s)\n";
+        echo "Final Value (ID=1): " . json_encode($final) . "\n\n";
+    }
+
+    // Save result
     $results[$level] = [
         "server0" => ["status" => "Committed", "duration" => $endLocal - $startLocal],
         "server1" => ["status" => $server1["status"], "duration" => $server1["duration"]],
@@ -52,5 +77,7 @@ foreach ($levels as $level) {
     ];
 }
 
-// Return JSON
-echo json_encode($results, JSON_PRETTY_PRINT);
+// Return JSON for frontend
+if (!$isCLI) {
+    echo json_encode($results, JSON_PRETTY_PRINT);
+}
