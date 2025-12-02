@@ -4,7 +4,7 @@ set_time_limit(0);
 error_reporting(0);
 
 // Trigger Server1 worker
-$server1Url = "http://10.2.14.130/simulate_case3.php"; // Server1 URL
+$server1Url = "http://ccscloud.dlsu.edu.ph:60230/simulate_case3.php";
 $server1Response = file_get_contents($server1Url);
 $server1 = json_decode($server1Response, true);
 if (!$server1) {
