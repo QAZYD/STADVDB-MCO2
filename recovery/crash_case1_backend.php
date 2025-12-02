@@ -34,8 +34,23 @@ $log[] = "Source: $sourceNode, Target: $targetNode";
 $healthStatus = $recoveryManager->getNodeHealthStatus();
 $log[] = "Node Health Status: " . json_encode($healthStatus);
 
+// Path to node state file (pure PHP)
+$nodeStatusFile = __DIR__ . '/node_status.php';
+
 // Step 2: Simulate central node failure (for testing)
 $log[] = "Simulating central node failure...";
+if (file_exists($nodeStatusFile)) {
+    $nodeStates = include $nodeStatusFile;
+    if (isset($nodeStates['central'])) {
+        $nodeStates['central']['online'] = false;
+        file_put_contents($nodeStatusFile, "<?php\nreturn " . var_export($nodeStates, true) . ";\n?>");
+        $log[] = "Central node set to OFFLINE in simulation file.";
+    } else {
+        $log[] = "⚠ Could not locate central node entry in simulation file.";
+    }
+} else {
+    $log[] = "⚠ node_status.php not found; cannot simulate offline state.";
+}
 
 // Step 3: Attempt the write operation
 $log[] = "Attempting write operation...";
@@ -61,6 +76,16 @@ if (!$writeResult['success']) {
 } else {
     $log[] = "Write succeeded (central node was available)";
     $results['failure_simulated'] = false;
+}
+
+// Step 5: Restore the central node to ONLINE
+if (file_exists($nodeStatusFile)) {
+    $nodeStates = include $nodeStatusFile;
+    if (isset($nodeStates['central'])) {
+        $nodeStates['central']['online'] = true;
+        file_put_contents($nodeStatusFile, "<?php\nreturn " . var_export($nodeStates, true) . ";\n?>");
+        $log[] = "Central node restored to ONLINE after simulation.";
+    }
 }
 
 // Step 4: Show how users are shielded
