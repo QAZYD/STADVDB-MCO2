@@ -27,7 +27,7 @@ $targetNode = 'central';
 $testData = ['firstName' => 'CrashTest_' . time()];
 $testRecordId = 1;
 
-$log[] = "=== Case #1: Slave to Central Replication Failure ===";
+$log[] = "=== Case #1: Slave to Central Replication Failure NEW===";
 $log[] = "Source: $sourceNode, Target: $targetNode";
 
 // Step 1: Check current node health
