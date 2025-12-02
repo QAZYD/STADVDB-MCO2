@@ -33,11 +33,9 @@ foreach ($levels as $level) {
     if ($isCLI) echo "=== Isolation Level: $level ===\n";
 
     // --- Trigger Server 1 with the same isolation level ---
-    $server1Response = @file_get_contents(
-        "http://ccscloud.dlsu.edu.ph:60230/simulate_case3.php?isolation=" . urlencode($level),
-        false,
-        $context
-    );
+   $server1Response = @file_get_contents(
+    "http://10.2.14.130/simulated_case3.php?isolation=" . urlencode($level)
+);
 
     $server1 = json_decode($server1Response, true);
     if (!$server1) {
