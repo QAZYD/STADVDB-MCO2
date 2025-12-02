@@ -8,6 +8,31 @@ $serverIPArray = explode(' ', $serverIPs);
 $currentIP = $serverIPArray[0];
 $isMaster = ($currentIP === $masterIP);
 ?>
+<?php
+$nodeStatusFile = __DIR__ . "/recovery/node_status.php";
+$nodeStates = include $nodeStatusFile;
+
+// If toggle form submitted
+if (isset($_POST['toggle_node']) && isset($_POST['node'])) {
+    $node = $_POST['node'];
+
+    if (isset($nodeStates[$node])) {
+        $current = $nodeStates[$node]['online'];
+        $nodeStates[$node]['online'] = !$current;
+
+        // Write updated states back to PHP file
+        $export = "<?php\nreturn " . var_export($nodeStates, true) . ";\n?>";
+        file_put_contents($nodeStatusFile, $export);
+
+        $msg = "Node '$node' turned " . ($nodeStates[$node]['online'] ? "ON" : "OFF");
+    } else {
+        $msg = "Invalid node: $node";
+    }
+
+    header("Location: " . $_SERVER['PHP_SELF'] . "?msg=" . urlencode($msg));
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -254,19 +279,24 @@ document.getElementById("runCase3Btn").addEventListener("click", function() {
     appendLog("Running Case #3 Multi-Master Write Conflict Simulation...");
 
     fetch("case3_backend.php")
-    .then(res => res.json())
-    .then(results => {
-        appendLog("=== Case #3 Multi-Master Write Conflict Results ===");
-        appendLog("Server 0: " + JSON.stringify(results.server0));
-        appendLog("Server 1: " + JSON.stringify(results.server1));
-        appendLog("Final Value: " + JSON.stringify(results.final_value));
-        appendLog("Case #3 simulation completed.");
-        this.disabled = false;
-    })
-    .catch(err => {
-        appendLog("Error during Case #3 simulation: " + err, 'error');
-        this.disabled = false;
-    });
+        .then(res => res.json())
+        .then(results => {
+            appendLog("=== Case #3 Multi-Master Write Conflict Results ===");
+
+            for (const [level, data] of Object.entries(results)) {
+                appendLog(`\nIsolation Level: ${level}`);
+                appendLog("  Server 0: " + JSON.stringify(data.server0));
+                appendLog("  Server 1: " + JSON.stringify(data.server1));
+                appendLog("  Final Value: " + JSON.stringify(data.final_value));
+            }
+
+            appendLog("\nCase #3 simulation completed.");
+            this.disabled = false;
+        })
+        .catch(err => {
+            appendLog("Error during Case #3 simulation: " + err, 'error');
+            this.disabled = false;
+        });
 });
 
 // ========== CRASH RECOVERY CASES ==========
