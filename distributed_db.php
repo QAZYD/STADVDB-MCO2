@@ -63,12 +63,12 @@ $isMaster = ($currentIP === $masterIP);
             <strong>Central Node</strong><br>
             <span>Checking...</span>
         </div>
-        <div class="node-card node-unknown" id="status-node1">
-            <strong>Node 1</strong><br>
-            <span>Checking...</span>
-        </div>
         <div class="node-card node-unknown" id="status-node2">
             <strong>Node 2</strong><br>
+            <span>Checking...</span>
+        </div>
+        <div class="node-card node-unknown" id="status-node3">
+            <strong>Node 3</strong><br>
             <span>Checking...</span>
         </div>
     </div>
@@ -99,8 +99,8 @@ $isMaster = ($currentIP === $masterIP);
     <button id="runCrashCase1Btn">Crash Case #1: Slave→Central Failure</button>
     <button id="runCrashCase2Btn">Crash Case #2: Central Node Recovery</button>
     <button id="runCrashCase3Btn">Crash Case #3: Central→Slave Failure</button>
-    <button id="runCrashCase4Btn" data-node="node1">Crash Case #4: Node 1 Recovery</button>
-    <button id="runCrashCase4Node2Btn" data-node="node2">Crash Case #4: Node 2 Recovery</button>
+    <button id="runCrashCase4Btn" data-node="node2">Crash Case #4: Node 2 Recovery</button>
+    <button id="runCrashCase4Node3Btn" data-node="node3">Crash Case #4: Node 3 Recovery</button>
 </div>
 
 <!-- Log Output -->
@@ -340,7 +340,7 @@ document.getElementById("runCrashCase3Btn").addEventListener("click", function()
     });
 });
 
-// Crash Case #4: Node 1 Recovery
+// Crash Case #4: Node 2 Recovery
 document.getElementById("runCrashCase4Btn").addEventListener("click", function() {
     this.disabled = true;
     clearLog();
@@ -365,8 +365,8 @@ document.getElementById("runCrashCase4Btn").addEventListener("click", function()
     });
 });
 
-// Crash Case #4: Node 2 Recovery
-document.getElementById("runCrashCase4Node2Btn").addEventListener("click", function() {
+// Crash Case #4: Node 3 Recovery
+document.getElementById("runCrashCase4Node3Btn").addEventListener("click", function() {
     this.disabled = true;
     clearLog();
     const node = this.getAttribute('data-node');
