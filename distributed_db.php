@@ -125,36 +125,38 @@ document.getElementById("runCase2Btn").addEventListener("click", function() {
 // Case #3 multi-master write conflict simulation
 document.getElementById("runCase3Btn").addEventListener("click", function() {
     this.disabled = true;
+    const logDiv = document.getElementById("log");
+
+    function appendLog(msg) {
+        logDiv.textContent += msg + "\n";
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
     appendLog("Running Case #3 Multi-Master Write Conflict Simulation...");
 
-    fetch("case3_backend.php")   // <-- backend you will create
-    .then(res => res.json())
-    .then(results => {
-        appendLog("=== Case #3 Multi-Master Write Conflict Results ===");
+    fetch("case3_backend.php")
+        .then(res => res.json())
+        .then(results => {
+            appendLog("=== Case #3 Multi-Master Write Conflict Results ===");
 
-        appendLog("Server 0:");
-        appendLog("  Status: " + results.server0.status);
-        appendLog("  Duration: " + results.server0.duration + " seconds");
+            appendLog("Server 0:");
+            appendLog("  Status: " + results.server0.status);
+            appendLog("  Duration: " + results.server0.duration + " seconds\n");
 
-        appendLog("");
+            appendLog("Server 1:");
+            appendLog("  Status: " + results.server1.status);
+            appendLog("  Duration: " + results.server1.duration + " seconds\n");
 
-        appendLog("Server 1:");
-        appendLog("  Status: " + results.server1.status);
-        appendLog("  Duration: " + results.server1.duration + " seconds");
+            appendLog("Final value of ID=1:");
+            appendLog("  " + JSON.stringify(results.final_value) + "\n");
 
-        appendLog("");
-
-        appendLog("Final Value of ID=1:");
-        appendLog("  " + JSON.stringify(results.final_value));
-
-        appendLog("\nCase #3 simulation completed.\n");
-
-        this.disabled = false;
-    })
-    .catch(err => {
-        appendLog("❌ Error during Case #3 simulation: " + err);
-        this.disabled = false;
-    });
+            appendLog("Case #3 simulation completed.\n");
+            this.disabled = false;
+        })
+        .catch(err => {
+            appendLog("❌ Error during Case #3 simulation: " + err);
+            this.disabled = false;
+        });
 });
 
 </script>
