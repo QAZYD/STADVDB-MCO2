@@ -5,45 +5,52 @@ error_reporting(E_ALL);
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 // =====================
-// Node Credentials
+// Master DB credentials
 // =====================
-$nodes = [
+$masters = [
     'server0' => ['host'=>'10.2.14.129','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
-    'server1' => ['host'=>'10.2.14.130','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'], // remote node
+    'server1' => ['host'=>'10.2.14.130','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
 ];
 
 // =====================
-// Trigger Server 1
+// Connect to both masters
 // =====================
-$server1Response = file_get_contents("http://ccscloud.dlsu.edu.ph:60230/simulate_case3.php");
-$server1 = json_decode($server1Response, true);
-if (!$server1) {
-    $server1 = ["status" => "ERROR", "duration" => 0];
-}
+$conn0 = new mysqli($masters['server0']['host'], $masters['server0']['user'], $masters['server0']['pass'], $masters['server0']['db']);
+$conn1 = new mysqli($masters['server1']['host'], $masters['server1']['user'], $masters['server1']['pass'], $masters['server1']['db']);
 
-// =====================
-// Server 0 local write
-// =====================
-$mysqli = new mysqli($nodes['server0']['host'], $nodes['server0']['user'], $nodes['server0']['pass'], $nodes['server0']['db']);
-$mysqli->query("SET autocommit = 0");
-$mysqli->query("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
+// Set up transactions
+$conn0->query("SET autocommit=0");
+$conn1->query("SET autocommit=0");
+$conn0->query("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
+$conn1->query("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
 
-$startLocal = microtime(true);
-$mysqli->begin_transaction();
-$mysqli->query("UPDATE users SET firstName = 'Server0Write' WHERE id = 1");
-sleep(2); // overlap with Server1
-$mysqli->commit();
-$endLocal = microtime(true);
+// Begin both transactions
+$conn0->begin_transaction();
+$conn1->begin_transaction();
 
-// Fetch final value
-$res = $mysqli->query("SELECT firstName FROM users WHERE id = 1 LIMIT 1");
-$final = $res->fetch_assoc();
+// Perform writes with overlapping sleep to simulate concurrency
+$conn0->query("UPDATE users SET firstName='Server0Write' WHERE id=1");
+$conn1->query("UPDATE users SET firstName='Server1Write' WHERE id=1");
+
+// Sleep to create overlap (simulates long-running transaction)
+sleep(2);
+
+// Commit both transactions
+$conn0->commit();
+$conn1->commit();
+
+// Fetch final values from both servers
+$final0 = $conn0->query("SELECT firstName FROM users WHERE id=1 LIMIT 1")->fetch_assoc();
+$final1 = $conn1->query("SELECT firstName FROM users WHERE id=1 LIMIT 1")->fetch_assoc();
+
+// Close connections
+$conn0->close();
+$conn1->close();
 
 // =====================
 // Return JSON
 // =====================
 echo json_encode([
-    "server0" => ["status" => "Committed", "duration" => $endLocal - $startLocal],
-    "server1" => ["status" => $server1["status"], "duration" => $server1["duration"]],
-    "final_value" => $final
-]);
+    "server0_final" => $final0,
+    "server1_final" => $final1
+], JSON_PRETTY_PRINT);

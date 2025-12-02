@@ -125,31 +125,14 @@ document.getElementById("runCase2Btn").addEventListener("click", function() {
 // Case #3 multi-master write conflict simulation
 document.getElementById("runCase3Btn").addEventListener("click", function() {
     this.disabled = true;
-    const logDiv = document.getElementById("log");
-
-    function appendLog(msg) {
-        logDiv.textContent += msg + "\n";
-        logDiv.scrollTop = logDiv.scrollHeight;
-    }
-
     appendLog("Running Case #3 Multi-Master Write Conflict Simulation...");
 
     fetch("case3_backend.php")
         .then(res => res.json())
         .then(results => {
             appendLog("=== Case #3 Multi-Master Write Conflict Results ===");
-
-            appendLog("Server 0:");
-            appendLog("  Status: " + results.server0.status);
-            appendLog("  Duration: " + results.server0.duration + " seconds\n");
-
-            appendLog("Server 1:");
-            appendLog("  Status: " + results.server1.status);
-            appendLog("  Duration: " + results.server1.duration + " seconds\n");
-
-            appendLog("Final value of ID=1:");
-            appendLog("  " + JSON.stringify(results.final_value) + "\n");
-
+            appendLog("Server 0 final value: " + JSON.stringify(results.server0_final));
+            appendLog("Server 1 final value: " + JSON.stringify(results.server1_final));
             appendLog("Case #3 simulation completed.\n");
             this.disabled = false;
         })
@@ -158,6 +141,7 @@ document.getElementById("runCase3Btn").addEventListener("click", function() {
             this.disabled = false;
         });
 });
+
 
 </script>
 
