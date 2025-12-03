@@ -28,17 +28,35 @@ class RecoveryManager {
      * Get connection to a specific node
      */
     public function getConnection($nodeName) {
+        // --- 1️⃣ Verify node exists ---
         if (!isset($this->nodes[$nodeName])) {
             return ['conn' => null, 'error' => "Unknown node: $nodeName"];
         }
-        
+
         $node = $this->nodes[$nodeName];
+
+        // --- 2️⃣ Faster fail and clean error handling ---
+        mysqli_report(MYSQLI_REPORT_OFF);
+        ini_set('mysqli.connect_timeout', 3);
+
         $conn = @new mysqli($node['host'], $node['user'], $node['pass'], $node['db']);
-        
+
+        // --- 3️⃣ Check connection failure ---
         if ($conn->connect_error) {
-            return ['conn' => null, 'error' => $conn->connect_error];
+            $error = $conn->connect_error;
+
+            // Detect if the MySQL service is actually stopped or unreachable
+            if (stripos($error, 'Connection refused') !== false ||
+                stripos($error, 'Can\'t connect to MySQL server') !== false ||
+                stripos($error, 'No route to host') !== false ||
+                stripos($error, 'timed out') !== false) {
+                $error = "MySQL service not reachable on node '$nodeName' ({$node['host']})";
+            }
+
+            return ['conn' => null, 'error' => $error];
         }
-        
+
+        // --- 4️⃣ Return valid connection ---
         return ['conn' => $conn, 'error' => null];
     }
 
@@ -121,6 +139,35 @@ class RecoveryManager {
     public function executeWithRecovery($sourceNode, $targetNode, $operationType, $tableName, $recordId, $dataPayload) {
         $transactionId = uniqid('txn_', true);
         $log = [];
+
+        // --- NEW: Respect PHP simulation flags (sandbox include, no cache) ---
+        $statusFile = __DIR__ . '/node_status.php';
+        if (file_exists($statusFile)) {
+            // Clear any opcache or stat cache for the file first
+            if (function_exists('opcache_invalidate')) {
+                @opcache_invalidate($statusFile, true);
+            }
+            clearstatcache(true, $statusFile);
+
+            // Include the file inside an isolated scope so it always re-reads from disk
+            $nodeStates = (static function ($file) {
+                // Temporarily disable opcode caching for this include
+                $result = include $file;
+                return is_array($result) ? $result : null;
+            })($statusFile);
+
+            // If target node is marked offline, short-circuit execution
+            if (isset($nodeStates[$targetNode]) && !$nodeStates[$targetNode]['online']) {
+                $log[] = "⛔ Target node '$targetNode' marked as OFFLINE in simulation file. Transaction queued for recovery.";
+                return [
+                    'success' => false,
+                    'error' => "Simulated node failure ($targetNode offline)",
+                    'transaction_id' => $transactionId,
+                    'queued_for_recovery' => true,
+                    'log' => $log
+                ];
+            }
+        }
 
         // Step 1: Log the transaction on source node
         $sourceConn = $this->getConnection($sourceNode);

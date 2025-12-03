@@ -1,0 +1,6 @@
+[2025-12-03 08:12:30] Node 'central' set to OFFLINE
+[2025-12-03 08:13:07] Node 'central' set to ONLINE
+[2025-12-03 08:13:14] Node 'node2' set to OFFLINE
+[2025-12-03 08:13:21] Node 'node2' set to ONLINE
+[2025-12-03 08:15:08] Node 'central' set to OFFLINE
+[2025-12-03 08:15:28] Node 'central' set to ONLINE

@@ -3,7 +3,7 @@
  * Case #1: Transaction from Node 2 or Node 3 fails to write to central node
  * 
  * Scenario: A slave node attempts to replicate a transaction to the central node,
- * but the central node is unavailable or the write fails.
+ * but the central node is unavailable (e.g., MySQL service stopped).
  * 
  * Recovery Strategy:
  * - Log the transaction locally on the originating node
@@ -32,24 +32,13 @@ $log[] = "Source: $sourceNode, Target: $targetNode";
 
 // Step 1: Check current node health
 $healthStatus = $recoveryManager->getNodeHealthStatus();
-$log[] = "Node Health Status: " . json_encode($healthStatus);
+$log[] = "Node Health Status: " . json_encode($healthStatus, JSON_PRETTY_PRINT);
 
-// Path to node state file (pure PHP)
-$nodeStatusFile = __DIR__ . '/node_status.php';
-
-// Step 2: Simulate central node failure (for testing)
-$log[] = "Simulating central node failure...";
-if (file_exists($nodeStatusFile)) {
-    $nodeStates = include $nodeStatusFile;
-    if (isset($nodeStates['central'])) {
-        $nodeStates['central']['online'] = false;
-        file_put_contents($nodeStatusFile, "<?php\nreturn " . var_export($nodeStates, true) . ";\n?>");
-        $log[] = "Central node set to OFFLINE in simulation file.";
-    } else {
-        $log[] = "⚠ Could not locate central node entry in simulation file.";
-    }
+// Step 2: Detect central node availability
+if (!$healthStatus['central']['online']) {
+    $log[] = "⚠ Central node appears OFFLINE (MySQL service is likely stopped). Proceeding with test.";
 } else {
-    $log[] = "⚠ node_status.php not found; cannot simulate offline state.";
+    $log[] = "✅ Central node appears ONLINE — for a proper failure test, stop the MySQL service on central first.";
 }
 
 // Step 3: Attempt the write operation
@@ -66,26 +55,16 @@ $writeResult = $recoveryManager->executeWithRecovery(
 $log = array_merge($log, $writeResult['log']);
 
 if (!$writeResult['success']) {
-    $log[] = "Write to central node failed as expected";
+    $log[] = "Write to central node failed (likely due to MySQL being offline)";
     $log[] = "Transaction queued for recovery: " . ($writeResult['queued_for_recovery'] ? 'Yes' : 'No');
     $log[] = "Transaction ID: " . ($writeResult['transaction_id'] ?? 'N/A');
     
-    $results['failure_simulated'] = true;
+    $results['failure_detected'] = true;
     $results['transaction_queued'] = $writeResult['queued_for_recovery'] ?? false;
     $results['transaction_id'] = $writeResult['transaction_id'] ?? null;
 } else {
-    $log[] = "Write succeeded (central node was available)";
-    $results['failure_simulated'] = false;
-}
-
-// Step 5: Restore the central node to ONLINE
-if (file_exists($nodeStatusFile)) {
-    $nodeStates = include $nodeStatusFile;
-    if (isset($nodeStates['central'])) {
-        $nodeStates['central']['online'] = true;
-        file_put_contents($nodeStatusFile, "<?php\nreturn " . var_export($nodeStates, true) . ";\n?>");
-        $log[] = "Central node restored to ONLINE after simulation.";
-    }
+    $log[] = "Write succeeded (central node was reachable)";
+    $results['failure_detected'] = false;
 }
 
 // Step 4: Show how users are shielded
@@ -99,7 +78,7 @@ $log[] = "4. Background process will sync when central recovers";
 $results['log'] = $log;
 $results['strategy'] = [
     'user_shielding' => 'Local writes continue, queued for replication',
-    'data_consistency' => 'Eventual consistency model',
+    'data_consistency' => 'Eventual consistency',
     'recovery_method' => 'Transaction log replay on node recovery'
 ];
 

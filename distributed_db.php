@@ -99,6 +99,15 @@ if (isset($_POST['toggle_node']) && isset($_POST['node'])) {
     </div>
     <button id="refreshHealthBtn">Refresh Health Status</button>
 </div>
+<div class="section">
+  <h3>Manual Node Toggle</h3>
+  <button onclick="toggleNode('central', 'off')">Turn Central OFF</button>
+  <button onclick="toggleNode('central', 'on')">Turn Central ON</button>
+  <button onclick="toggleNode('node2', 'off')">Turn Node2 OFF</button>
+  <button onclick="toggleNode('node2', 'on')">Turn Node2 ON</button>
+  <button onclick="toggleNode('node3', 'off')">Turn Node3 OFF</button>
+  <button onclick="toggleNode('node3', 'on')">Turn Node3 ON</button>
+</div>
 
 <!-- Fragment Distribution -->
 <div class="section">
@@ -419,6 +428,25 @@ document.getElementById("runCrashCase4Node3Btn").addEventListener("click", funct
         this.disabled = false;
     });
 });
+
+// AJAX toggle for node status
+function toggleNode(node, state) {
+    fetch("recovery/toggle_node_status.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ node, state })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            appendLog(`Node ${res.node} switched ${res.online ? "ON" : "OFF"}`, res.online ? "success" : "warning");
+            refreshHealthStatus();
+        } else {
+            appendLog(`Failed to toggle node: ${res.error}`, "error");
+        }
+    })
+    .catch(err => appendLog("Toggle error: " + err, "error"));
+}
 
 </script>
 
