@@ -293,11 +293,12 @@ document.getElementById("runCase3Btn").addEventListener("click", function() {
         .then(results => {
             appendLog("=== Case #3 Multi-Master Write Conflict Results ===");
 
-            for (const [level, data] of Object.entries(results)) {
+            // use results.results instead of results
+            for (const [level, data] of Object.entries(results.results)) {
                 appendLog(`\nIsolation Level: ${level}`);
                 appendLog("  Server 0: " + JSON.stringify(data.server0));
                 appendLog("  Server 1: " + JSON.stringify(data.server1));
-                appendLog("  Final Value: " + JSON.stringify(data.final_value));
+                appendLog("  Final Value: " + JSON.stringify(data.winner.row.firstName));
             }
 
             appendLog("\nCase #3 simulation completed.");
