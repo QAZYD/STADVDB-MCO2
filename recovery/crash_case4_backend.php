@@ -55,11 +55,23 @@ if ($centralConn['error']) {
 }
 
 // Create test transactions that were "missed" by the recovering node
-$missedTransactions = [
-    ['record_id' => 10, 'data' => ['firstName' => 'MissedWrite1_' . time()]],
-    ['record_id' => 11, 'data' => ['firstName' => 'MissedWrite2_' . time()]],
-    ['record_id' => 12, 'data' => ['firstName' => 'MissedWrite3_' . time()]],
-];
+// Use IDs that exist in the Users table for each node:
+// - node2: IDs 1-50000 (fragment 1)
+// - node3: IDs 50001+ (fragment 2)
+if ($nodeToRecover === 'node2') {
+    $missedTransactions = [
+        ['record_id' => 1, 'data' => ['firstName' => 'MissedWrite1_' . time()]],
+        ['record_id' => 2, 'data' => ['firstName' => 'MissedWrite2_' . time()]],
+        ['record_id' => 3, 'data' => ['firstName' => 'MissedWrite3_' . time()]],
+    ];
+} else {
+    // node3
+    $missedTransactions = [
+        ['record_id' => 50001, 'data' => ['firstName' => 'MissedWrite1_' . time()]],
+        ['record_id' => 50002, 'data' => ['firstName' => 'MissedWrite2_' . time()]],
+        ['record_id' => 50003, 'data' => ['firstName' => 'MissedWrite3_' . time()]],
+    ];
+}
 
 foreach ($missedTransactions as $txn) {
     $txnId = uniqid('missed_', true);
@@ -129,16 +141,15 @@ $log = array_merge($log, $recoveryResult['log'] ?? []);
 $totalRecovered = $recoveryResult['recovered'] ?? 0;
 $totalFailed = $recoveryResult['failed'] ?? 0;
 
-// Also check if there are any pending transactions on the slave itself
-// (edge case: slave logged a transaction but crashed before completing)
+// Also check the slave's own transaction log for any pending transactions
+// (edge case: slave logged a transaction to central but crashed before completing)
 $log[] = "";
-$log[] = "Checking $nodeToRecover for any self-pending transactions...";
-$selfResult = $recoveryManager->recoverNode($nodeToRecover);
+$log[] = "Checking $nodeToRecover for pending transactions to central...";
+$selfResult = $recoveryManager->recoverPendingFromNode($nodeToRecover, 'central');
 $log = array_merge($log, $selfResult['log'] ?? []);
 
 $totalRecovered += $selfResult['recovered'] ?? 0;
 $totalFailed += $selfResult['failed'] ?? 0;
-$log = array_merge($log, $recoveryResult['log']);
 
 // Step 5: Verify consistency
 $log[] = "";
