@@ -21,14 +21,13 @@ $recoveryManager = new RecoveryManager();
 $results = [];
 $log = [];
 
-// Simulate a write from Node 2 that needs to replicate to central
-$sourceNode = 'node2';
+// Test from BOTH slave nodes
+$slaveNodes = ['node2', 'node3'];
 $targetNode = 'central';
-$testData = ['firstName' => 'CrashTest_' . time()];
 $testRecordId = 1;
 
 $log[] = "=== Case #1: Slave to Central Replication Failure ===";
-$log[] = "Source: $sourceNode, Target: $targetNode";
+$log[] = "Testing from: " . implode(', ', $slaveNodes) . " → $targetNode";
 
 // Step 1: Check current node health
 $healthStatus = $recoveryManager->getNodeHealthStatus();
@@ -38,43 +37,71 @@ $log[] = "Node Health Status: " . json_encode($healthStatus, JSON_PRETTY_PRINT);
 if (!$healthStatus['central']['online']) {
     $log[] = "⚠ Central node appears OFFLINE (MySQL service is likely stopped). Proceeding with test.";
 } else {
-    $log[] = "✅ Central node appears ONLINE — for a proper failure test, stop the MySQL service on central first.";
+    $log[] = "✅ Central node appears ONLINE — for a proper failure test, turn off central node first.";
 }
 
-// Step 3: Attempt the write operation
-$log[] = "Attempting write operation...";
-$writeResult = $recoveryManager->executeWithRecovery(
-    $sourceNode,
-    $targetNode,
-    'UPDATE',
-    'Users',
-    $testRecordId,
-    $testData
-);
+// Step 3: Attempt write operations from BOTH slave nodes
+$log[] = "";
+$log[] = "=== Attempting Write Operations ===";
 
-$log = array_merge($log, $writeResult['log']);
+$transactionResults = [];
 
-if (!$writeResult['success']) {
-    $log[] = "Write to central node failed (likely due to MySQL being offline)";
-    $log[] = "Transaction queued for recovery: " . ($writeResult['queued_for_recovery'] ? 'Yes' : 'No');
-    $log[] = "Transaction ID: " . ($writeResult['transaction_id'] ?? 'N/A');
+foreach ($slaveNodes as $sourceNode) {
+    $testData = ['firstName' => 'CrashTest_' . $sourceNode . '_' . time()];
     
-    $results['failure_detected'] = true;
-    $results['transaction_queued'] = $writeResult['queued_for_recovery'] ?? false;
-    $results['transaction_id'] = $writeResult['transaction_id'] ?? null;
-} else {
-    $log[] = "Write succeeded (central node was reachable)";
-    $results['failure_detected'] = false;
+    $log[] = "";
+    $log[] = "--- Testing from $sourceNode ---";
+    $log[] = "Attempting write operation from $sourceNode to $targetNode...";
+    
+    $writeResult = $recoveryManager->executeWithRecovery(
+        $sourceNode,
+        $targetNode,
+        'UPDATE',
+        'Users',
+        $testRecordId,
+        $testData
+    );
+    
+    $log = array_merge($log, $writeResult['log']);
+    
+    if (!$writeResult['success']) {
+        $log[] = "⛔ Write from $sourceNode to central failed";
+        $log[] = "Transaction queued for recovery: " . ($writeResult['queued_for_recovery'] ? 'Yes' : 'No');
+        $log[] = "Transaction ID: " . ($writeResult['transaction_id'] ?? 'N/A');
+        
+        $transactionResults[$sourceNode] = [
+            'success' => false,
+            'queued' => $writeResult['queued_for_recovery'] ?? false,
+            'transaction_id' => $writeResult['transaction_id'] ?? null
+        ];
+    } else {
+        $log[] = "✅ Write from $sourceNode succeeded (central node was reachable)";
+        $transactionResults[$sourceNode] = [
+            'success' => true,
+            'transaction_id' => $writeResult['transaction_id'] ?? null
+        ];
+    }
 }
 
 // Step 4: Show how users are shielded
 $log[] = "";
 $log[] = "=== User Protection Strategy ===";
-$log[] = "1. Local writes are still accepted on $sourceNode";
-$log[] = "2. Transaction is logged for later replication";
+$log[] = "1. Local writes are still accepted on each slave node";
+$log[] = "2. Transactions are logged on their respective source nodes";
 $log[] = "3. User sees success message (eventual consistency)";
 $log[] = "4. Background process will sync when central recovers";
 
+// Determine overall failure status
+$anyFailure = false;
+foreach ($transactionResults as $result) {
+    if (!$result['success']) {
+        $anyFailure = true;
+        break;
+    }
+}
+
+$results['failure_detected'] = $anyFailure;
+$results['transactions'] = $transactionResults;
 $results['log'] = $log;
 $results['strategy'] = [
     'user_shielding' => 'Local writes continue, queued for replication',
