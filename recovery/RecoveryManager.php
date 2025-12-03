@@ -173,36 +173,7 @@ class RecoveryManager {
         $transactionId = uniqid('txn_', true);
         $log = [];
 
-        // --- NEW: Respect PHP simulation flags (sandbox include, no cache) ---
-        $statusFile = __DIR__ . '/node_status.php';
-        if (file_exists($statusFile)) {
-            // Clear any opcache or stat cache for the file first
-            if (function_exists('opcache_invalidate')) {
-                @opcache_invalidate($statusFile, true);
-            }
-            clearstatcache(true, $statusFile);
-
-            // Include the file inside an isolated scope so it always re-reads from disk
-            $nodeStates = (static function ($file) {
-                // Temporarily disable opcode caching for this include
-                $result = include $file;
-                return is_array($result) ? $result : null;
-            })($statusFile);
-
-            // If target node is marked offline, short-circuit execution
-            if (isset($nodeStates[$targetNode]) && !$nodeStates[$targetNode]['online']) {
-                $log[] = "⛔ Target node '$targetNode' marked as OFFLINE in simulation file. Transaction queued for recovery.";
-                return [
-                    'success' => false,
-                    'error' => "Simulated node failure ($targetNode offline)",
-                    'transaction_id' => $transactionId,
-                    'queued_for_recovery' => true,
-                    'log' => $log
-                ];
-            }
-        }
-
-        // Step 1: Log the transaction on source node
+        // Step 1: ALWAYS log the transaction on source node FIRST (before checking target)
         $sourceConn = $this->getConnection($sourceNode);
         if ($sourceConn['error']) {
             return ['success' => false, 'error' => "Source node unavailable: " . $sourceConn['error'], 'log' => $log];
@@ -219,6 +190,37 @@ class RecoveryManager {
             $dataPayload
         );
         $log[] = "Transaction $transactionId logged on $sourceNode";
+
+        // --- Step 2: Check simulation flags for target node ---
+        $statusFile = __DIR__ . '/node_status.php';
+        if (file_exists($statusFile)) {
+            // Clear any opcache or stat cache for the file first
+            if (function_exists('opcache_invalidate')) {
+                @opcache_invalidate($statusFile, true);
+            }
+            clearstatcache(true, $statusFile);
+
+            // Include the file inside an isolated scope so it always re-reads from disk
+            $nodeStates = (static function ($file) {
+                // Temporarily disable opcode caching for this include
+                $result = include $file;
+                return is_array($result) ? $result : null;
+            })($statusFile);
+
+            // If target node is marked offline, mark transaction as PENDING and return
+            if (isset($nodeStates[$targetNode]) && !$nodeStates[$targetNode]['online']) {
+                $log[] = "⛔ Target node '$targetNode' marked as OFFLINE in simulation file. Transaction queued for recovery.";
+                // Transaction is already logged as PENDING, so it will be recovered later
+                $sourceConn['conn']->close();
+                return [
+                    'success' => false,
+                    'error' => "Simulated node failure ($targetNode offline)",
+                    'transaction_id' => $transactionId,
+                    'queued_for_recovery' => true,
+                    'log' => $log
+                ];
+            }
+        }
 
         // Step 2: Attempt to execute on target node
         $targetConn = $this->getConnection($targetNode);
@@ -376,6 +378,70 @@ class RecoveryManager {
         }
 
         $centralConn['conn']->close();
+
+        return [
+            'success' => true,
+            'recovered' => $recovered,
+            'failed' => $failed,
+            'log' => $log
+        ];
+    }
+
+    /**
+     * Recover pending transactions FROM a source node TO a target node
+     * This checks the source node's transaction_log for pending transactions targeting the target node
+     */
+    public function recoverPendingFromNode($sourceNode, $targetNode) {
+        $log = [];
+        $recovered = 0;
+        $failed = 0;
+
+        // Get connection to source node to read its transaction log
+        $sourceConn = $this->getConnection($sourceNode);
+        if ($sourceConn['error']) {
+            $log[] = "Cannot connect to $sourceNode: " . $sourceConn['error'];
+            return ['success' => false, 'error' => $sourceConn['error'], 'log' => $log, 'recovered' => 0, 'failed' => 0];
+        }
+
+        // Get connection to target node
+        $targetConn = $this->getConnection($targetNode);
+        if ($targetConn['error']) {
+            $sourceConn['conn']->close();
+            $log[] = "Cannot connect to $targetNode: " . $targetConn['error'];
+            return ['success' => false, 'error' => $targetConn['error'], 'log' => $log, 'recovered' => 0, 'failed' => 0];
+        }
+
+        // Get pending transactions from source node targeting the target node
+        $pendingTxns = $this->getPendingTransactions($sourceConn['conn'], $targetNode);
+        $log[] = "Found " . count($pendingTxns) . " pending transactions on $sourceNode targeting $targetNode";
+
+        foreach ($pendingTxns as $txn) {
+            try {
+                $targetConn['conn']->begin_transaction();
+                $data = json_decode($txn['data_payload'], true);
+                
+                if ($txn['operation_type'] === 'UPDATE') {
+                    $this->executeUpdate($targetConn['conn'], $txn['table_name'], $txn['record_id'], $data);
+                } elseif ($txn['operation_type'] === 'INSERT') {
+                    $this->executeInsert($targetConn['conn'], $txn['table_name'], $data);
+                }
+                
+                $targetConn['conn']->commit();
+                // Update status on the SOURCE node where the transaction was logged
+                $this->updateTransactionStatus($sourceConn['conn'], $txn['transaction_id'], 'RECOVERED');
+                $log[] = "✅ Recovered transaction: " . $txn['transaction_id'];
+                $recovered++;
+                
+            } catch (Exception $e) {
+                $targetConn['conn']->rollback();
+                $this->updateTransactionStatus($sourceConn['conn'], $txn['transaction_id'], 'FAILED', true);
+                $log[] = "❌ Failed to recover transaction " . $txn['transaction_id'] . ": " . $e->getMessage();
+                $failed++;
+            }
+        }
+
+        $sourceConn['conn']->close();
+        $targetConn['conn']->close();
 
         return [
             'success' => true,

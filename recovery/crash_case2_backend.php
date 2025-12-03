@@ -75,18 +75,35 @@ foreach ($testTransactions as $txn) {
     $log[] = "Created pending transaction: $txnId from " . $txn['source'];
 }
 
-// Step 3: Perform recovery
+// Step 3: Perform recovery - Check ALL nodes for pending transactions to central
 $log[] = "";
 $log[] = "=== Executing Recovery ===";
 
+// First, recover from the simulated transactions on central
 $recoveryResult = $recoveryManager->recoverNode('central');
 $log = array_merge($log, $recoveryResult['log']);
+
+$totalRecovered = $recoveryResult['recovered'] ?? 0;
+$totalFailed = $recoveryResult['failed'] ?? 0;
+
+// NEW: Also check slave nodes (node2, node3) for pending transactions targeting central
+$slaveNodes = ['node2', 'node3'];
+foreach ($slaveNodes as $slaveNode) {
+    $log[] = "";
+    $log[] = "Checking $slaveNode for pending transactions to central...";
+    
+    $slaveResult = $recoveryManager->recoverPendingFromNode($slaveNode, 'central');
+    $log = array_merge($log, $slaveResult['log'] ?? []);
+    
+    $totalRecovered += $slaveResult['recovered'] ?? 0;
+    $totalFailed += $slaveResult['failed'] ?? 0;
+}
 
 // Step 4: Verify recovery
 $log[] = "";
 $log[] = "=== Recovery Summary ===";
-$log[] = "Transactions recovered: " . ($recoveryResult['recovered'] ?? 0);
-$log[] = "Transactions failed: " . ($recoveryResult['failed'] ?? 0);
+$log[] = "Transactions recovered: " . $totalRecovered;
+$log[] = "Transactions failed: " . $totalFailed;
 
 // Step 5: Show the recovery process
 $log[] = "";
@@ -100,8 +117,8 @@ $log[] = "5. Failed recoveries are retried up to max_retries limit";
 $centralConn['conn']->close();
 
 $results['success'] = true;
-$results['recovered'] = $recoveryResult['recovered'] ?? 0;
-$results['failed'] = $recoveryResult['failed'] ?? 0;
+$results['recovered'] = $totalRecovered;
+$results['failed'] = $totalFailed;
 $results['log'] = $log;
 $results['recovery_strategy'] = [
     'method' => 'Transaction log replay',

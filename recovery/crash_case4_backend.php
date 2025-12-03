@@ -120,7 +120,24 @@ $log[] = "✔ Node $nodeToRecover is online";
 // Step 4: Execute recovery
 $log[] = "Starting transaction replay...";
 
-$recoveryResult = $recoveryManager->recoverNode($nodeToRecover);
+// Recover from central's transaction log (for transactions from central → slave)
+$log[] = "";
+$log[] = "Checking central node for pending transactions to $nodeToRecover...";
+$recoveryResult = $recoveryManager->recoverPendingFromNode('central', $nodeToRecover);
+$log = array_merge($log, $recoveryResult['log'] ?? []);
+
+$totalRecovered = $recoveryResult['recovered'] ?? 0;
+$totalFailed = $recoveryResult['failed'] ?? 0;
+
+// Also check if there are any pending transactions on the slave itself
+// (edge case: slave logged a transaction but crashed before completing)
+$log[] = "";
+$log[] = "Checking $nodeToRecover for any self-pending transactions...";
+$selfResult = $recoveryManager->recoverNode($nodeToRecover);
+$log = array_merge($log, $selfResult['log'] ?? []);
+
+$totalRecovered += $selfResult['recovered'] ?? 0;
+$totalFailed += $selfResult['failed'] ?? 0;
 $log = array_merge($log, $recoveryResult['log']);
 
 // Step 5: Verify consistency
@@ -151,15 +168,15 @@ $log[] = "";
 $log[] = "=== Recovery Summary ===";
 $log[] = "Node: $nodeToRecover";
 $log[] = "Status: RECOVERED";
-$log[] = "Transactions replayed: " . ($recoveryResult['recovered'] ?? 0);
-$log[] = "Transactions failed: " . ($recoveryResult['failed'] ?? 0);
+$log[] = "Transactions replayed: " . $totalRecovered;
+$log[] = "Transactions failed: " . $totalFailed;
 
 $centralConn['conn']->close();
 
 $results['success'] = true;
 $results['node'] = $nodeToRecover;
-$results['recovered'] = $recoveryResult['recovered'] ?? 0;
-$results['failed'] = $recoveryResult['failed'] ?? 0;
+$results['recovered'] = $totalRecovered;
+$results['failed'] = $totalFailed;
 $results['log'] = $log;
 $results['recovery_strategy'] = [
     'detection' => 'Health check polling every 5 seconds',

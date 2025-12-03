@@ -12,3 +12,7 @@
 [2025-12-03 09:51:49] Node 'central' set to ONLINE
 [2025-12-03 09:51:50] Node 'node2' set to ONLINE
 [2025-12-03 09:51:51] Node 'node3' set to ONLINE
+[2025-12-03 09:54:45] Node 'central' set to OFFLINE
+[2025-12-03 09:55:20] Node 'central' set to ONLINE
+[2025-12-03 10:02:59] Node 'central' set to OFFLINE
+[2025-12-03 10:08:52] Node 'central' set to ONLINE
