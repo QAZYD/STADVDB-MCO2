@@ -61,9 +61,26 @@ class RecoveryManager {
     }
 
     /**
-     * Check if a node is online
+     * Check if a node is online (respects simulation file)
      */
     public function isNodeOnline($nodeName) {
+        // First check simulation status file
+        $statusFile = __DIR__ . '/node_status.php';
+        if (file_exists($statusFile)) {
+            if (function_exists('opcache_invalidate')) {
+                @opcache_invalidate($statusFile, true);
+            }
+            clearstatcache(true, $statusFile);
+            
+            $nodeStates = include $statusFile;
+            
+            // Map node names (node2 -> node2, node3 -> node3, central -> central)
+            if (isset($nodeStates[$nodeName]) && !$nodeStates[$nodeName]['online']) {
+                return false; // Simulated as offline
+            }
+        }
+        
+        // If not simulated offline, check actual connection
         $result = $this->getConnection($nodeName);
         if ($result['conn']) {
             $result['conn']->close();
@@ -77,10 +94,26 @@ class RecoveryManager {
      */
     public function getNodeHealthStatus() {
         $status = [];
+        
+        // Load simulation states
+        $statusFile = __DIR__ . '/node_status.php';
+        $simulatedStates = [];
+        if (file_exists($statusFile)) {
+            if (function_exists('opcache_invalidate')) {
+                @opcache_invalidate($statusFile, true);
+            }
+            clearstatcache(true, $statusFile);
+            $simulatedStates = include $statusFile;
+        }
+        
         foreach (array_keys($this->nodes) as $nodeName) {
+            // Check if simulated offline first
+            $isSimulatedOffline = isset($simulatedStates[$nodeName]) && !$simulatedStates[$nodeName]['online'];
+            
             $status[$nodeName] = [
-                'online' => $this->isNodeOnline($nodeName),
+                'online' => $isSimulatedOffline ? false : $this->isNodeOnline($nodeName),
                 'ip' => $this->nodes[$nodeName]['host'],
+                'simulated' => $isSimulatedOffline,
                 'checked_at' => date('Y-m-d H:i:s')
             ];
         }

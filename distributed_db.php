@@ -169,8 +169,9 @@ function updateNodeStatus(nodeName, isOnline, ip) {
     const card = document.getElementById(`status-${nodeName}`);
     if (card) {
         card.className = `node-card ${isOnline ? 'node-online' : 'node-offline'}`;
+        const displayName = nodeName.charAt(0).toUpperCase() + nodeName.slice(1);
         card.innerHTML = `
-            <strong>${nodeName.charAt(0).toUpperCase() + nodeName.slice(1)}</strong><br>
+            <strong>${displayName}</strong><br>
             <span>${ip}</span><br>
             <span>${isOnline ? '● Online' : '○ Offline'}</span>
         `;
