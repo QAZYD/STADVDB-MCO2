@@ -170,10 +170,24 @@ class RecoveryManager {
      * Execute a write operation with recovery support
      */
     public function executeWithRecovery($sourceNode, $targetNode, $operationType, $tableName, $recordId, $dataPayload) {
-        $transactionId = uniqid('txn_', true);
         $log = [];
 
-        // Step 1: ALWAYS log the transaction on source node FIRST (before checking target)
+        // Step 1: Check if SOURCE node is online (respects simulation flag)
+        if (!$this->isNodeOnline($sourceNode)) {
+            $log[] = "⛔ Source node '$sourceNode' is OFFLINE - cannot process transaction";
+            return [
+                'success' => false, 
+                'error' => "Source node $sourceNode is offline",
+                'transaction_id' => null,  // No ID since nothing was logged
+                'queued_for_recovery' => false,
+                'log' => $log
+            ];
+        }
+
+        // Generate transaction ID only AFTER confirming source is online
+        $transactionId = uniqid('txn_', true);
+
+        // Step 2: Log the transaction on source node FIRST (before checking target)
         $sourceConn = $this->getConnection($sourceNode);
         if ($sourceConn['error']) {
             return ['success' => false, 'error' => "Source node unavailable: " . $sourceConn['error'], 'log' => $log];
@@ -191,7 +205,7 @@ class RecoveryManager {
         );
         $log[] = "Transaction $transactionId logged on $sourceNode";
 
-        // --- Step 2: Check simulation flags for target node ---
+        // --- Step 3: Check simulation flags for target node ---
         $statusFile = __DIR__ . '/node_status.php';
         if (file_exists($statusFile)) {
             // Clear any opcache or stat cache for the file first
@@ -222,7 +236,7 @@ class RecoveryManager {
             }
         }
 
-        // Step 2: Attempt to execute on target node
+        // Step 4: Attempt to execute on target node
         $targetConn = $this->getConnection($targetNode);
         if ($targetConn['error']) {
             // Target node is down - mark as FAILED for later recovery
@@ -238,7 +252,7 @@ class RecoveryManager {
             ];
         }
 
-        // Step 3: Execute the operation
+        // Step 5: Execute the operation
         try {
             $targetConn['conn']->begin_transaction();
             
@@ -395,6 +409,18 @@ class RecoveryManager {
         $log = [];
         $recovered = 0;
         $failed = 0;
+
+        // First check if source node is online 
+        if (!$this->isNodeOnline($sourceNode)) {
+            $log[] = "⚠ $sourceNode is offline - cannot read transaction logs from this node";
+            return ['success' => false, 'error' => "$sourceNode is offline", 'log' => $log, 'recovered' => 0, 'failed' => 0];
+        }
+
+        // Check if target node is online
+        if (!$this->isNodeOnline($targetNode)) {
+            $log[] = "⚠ $targetNode is offline - cannot replay transactions to this node";
+            return ['success' => false, 'error' => "$targetNode is offline", 'log' => $log, 'recovered' => 0, 'failed' => 0];
+        }
 
         // Get connection to source node to read its transaction log
         $sourceConn = $this->getConnection($sourceNode);
