@@ -13,8 +13,8 @@ function log_msg($msg) {
 
 // nodes
 $nodes = [
-    'server0' => ['host'=>'10.2.14.129','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
-    'server1' => ['host'=>'10.2.14.130','user'=>'G9_1','pass'=>'pass1234','db'=>'faker','http_base'=>'http://10.2.14.130']
+  'server0' => ['host'=>'10.2.14.129','user'=>'G9_1','pass'=>'pass1234','db'=>'faker'],
+  'server1' => ['host'=>'10.2.14.130','user'=>'G9_1','pass'=>'pass1234','db'=>'faker','http_base'=>'http://10.2.14.130']
 ];
 
 $levels = ["READ UNCOMMITTED","READ COMMITTED","REPEATABLE READ","SERIALIZABLE"];
@@ -61,6 +61,7 @@ foreach ($levels as $level) {
         $server1 = json_decode($server1_raw,true);
     }
 
+
     /* =====================================
        2) Server0 DB write
     ======================================*/
@@ -91,6 +92,7 @@ foreach ($levels as $level) {
     $m->commit();
     log_msg("Server0 committed write.");
 
+
     /* =====================================
        3) Read final rows from both servers
     ======================================*/
@@ -110,6 +112,7 @@ foreach ($levels as $level) {
         $s1->close();
     }
 
+
     /* =====================================
        4) Conflict resolution
     ======================================*/
@@ -127,9 +130,10 @@ foreach ($levels as $level) {
             $winner = ['row'=>$row1,'source'=>'server1'];
         } else {
             log_msg("Timestamps equal, resolving by server name...");
-            $winner = ($row0['last_update_server'] >= $row1['last_update_server'])
-                ? ['row'=>$row0,'source'=>'server0']
-                : ['row'=>$row1,'source'=>'server1'];
+            if ($row0['last_update_server'] >= $row1['last_update_server'])
+                $winner = ['row'=>$row0,'source'=>'server0'];
+            else
+                $winner = ['row'=>$row1,'source'=>'server1'];
         }
     } elseif ($row0) {
         $winner = ['row'=>$row0,'source'=>'server0'];
@@ -141,6 +145,7 @@ foreach ($levels as $level) {
 
     log_msg("Winner is from: " . $winner['source']);
     log_msg("Winner row: " . json_encode($winner['row']));
+
 
     /* =====================================
        5) Propagate the winner
@@ -157,31 +162,28 @@ foreach ($levels as $level) {
         $m2 = new mysqli($nodes['server0']['host'],$nodes['server0']['user'],$nodes['server0']['pass'],$nodes['server0']['db']);
         $stmt2 = $m2->prepare("UPDATE Users SET firstName=?, last_update_ts=?, last_update_server=?, version=? WHERE id=?");
         $stmt2->bind_param("sdsii",$resolvedValue,$resolved_ts,$winner['row']['last_update_server'],$resolved_ver,$targetId);
-
         try {
             $stmt2->execute();
         } catch(mysqli_sql_exception $e) {
             $deadlock = strpos($e->getMessage(), 'lock wait timeout') !== false || 
-                        strpos($e->getMessage(), 'deadlock') !== false;
-
+                        strpos($e->getMessage(), 'deadlock') != false;
             if ($deadlock) {
                 echo json_encode([
                     "status" => "ERROR",
                     "type" => "DEADLOCK",
-                    "isolation" => $level,
+                    "isolation" => $isolationLevel,
                     "message" => "Deadlock detected under Serializable"
                 ]);
                 exit;
-            }
 
             echo json_encode([
-                "status" => "ERROR",
-                "type"   => "SQL_ERROR",
-                "message" => $e->getMessage()
+              "status" => "ERROR",
+              "type"   => "SQL_ERROR",
+              "message" => $e->getMessage()
             ]);
-            exit;
+    exit;
+}
         }
-
         $stmt2->close();
         $m2->close();
 
@@ -200,11 +202,11 @@ foreach ($levels as $level) {
     }
 
     $results[$level] = [
-        'server0' => ['status'=>'Committed','duration'=>round(microtime(true)-$ts0,6)],
-        'server1' => $server1,
-        'row0' => $row0,
-        'row1' => $row1,
-        'winner' => $winner
+        'server0'=>$server0_info = ['status'=>'Committed','duration'=>round(microtime(true)-$ts0,6)],
+        'server1'=>$server1,
+        'row0'=>$row0,
+        'row1'=>$row1,
+        'winner'=>$winner
     ];
 
     log_msg("Completed isolation level $level.");
