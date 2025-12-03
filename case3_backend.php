@@ -162,7 +162,28 @@ foreach ($levels as $level) {
         $m2 = new mysqli($nodes['server0']['host'],$nodes['server0']['user'],$nodes['server0']['pass'],$nodes['server0']['db']);
         $stmt2 = $m2->prepare("UPDATE Users SET firstName=?, last_update_ts=?, last_update_server=?, version=? WHERE id=?");
         $stmt2->bind_param("sdsii",$resolvedValue,$resolved_ts,$winner['row']['last_update_server'],$resolved_ver,$targetId);
-        $stmt2->execute();
+        try {
+            $stmt2->execute();
+        } catch(mysqli_sql_exception $e) {
+            $deadlock = strpos($e->getMessage(), 'lock wait timeout') !== false || 
+                        strpos($e->getMessage(), 'deadlock') != false;
+            if ($deadlock) {
+                echo json_encode([
+                    "status" => "ERROR",
+                    "type" => "DEADLOCK",
+                    "isolation" => $isolationLevel,
+                    "message" => "Deadlock detected under Serializable"
+                ]);
+                exit;
+
+            echo json_encode([
+              "status" => "ERROR",
+              "type"   => "SQL_ERROR",
+              "message" => $e->getMessage()
+            ]);
+    exit;
+}
+        }
         $stmt2->close();
         $m2->close();
 
